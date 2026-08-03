@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="container">
+  <div class="flex flex-between flex-center mb-2">
+    <div>
+      <h1 style="font-size:1.5rem">Bienvenue, {{ current_user.username }}</h1>
+      {% if expires %}
+      <p style="color:var(--text2); font-size:0.85rem; margin-top:0.25rem">
+        Licence active jusqu'au {{ expires.strftime('%d/%m/%Y') }}
+      </p>
+      {% endif %}
+    </div>
+    <div class="flex gap-1">
+      {% if account %}
+        {% if status == 'RUNNING' %}
+        <span class="status-badge status-running">ACTIF</span>
+        <button onclick="stopTrading()" class="btn btn-red btn-sm">Arreter</button>
+        {% elif status == 'CONFIGURED' or status == 'STOPPED' %}
+        <span class="status-badge status-stopped">ARRETE</span>
+        <button onclick="startTrading()" class="btn btn-green btn-sm">Demarrer</button>
+        {% endif %}
+      {% else %}
+      <a href="{{ url_for('setup_trading') }}" class="btn btn-primary btn-sm">Configurer le trading</a>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Stats row -->
+  <div class="dash-grid" id="statsGrid">
+    <div class="stat-card">
+      <span class="stat-label">Balance</span>
+      <span class="stat-value" id="d-balance">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Equity</span>
+      <span class="stat-value" id="d-equity">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">P&amp;L Ouvert</span>
+      <span class="stat-value" id="d-openpl">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Croissance</span>
+      <span class="stat-value" id="d-growth">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Drawdown</span>
+      <span class="stat-value" id="d-drawdown">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Win Rate</span>
+      <span class="stat-value" id="d-winrate">--</span>
+    </div>
+  </div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem">
+    <!-- Signal -->
+    <div class="card">
+      <h2>Signal Actuel</h2>
+      <div class="flex flex-between flex-center">
+        <div>
+          <span style="font-size:1.1rem; font-weight:700" id="d-sig-asset">--</span>
+          <span class="status-badge" id="d-sig-type" style="margin-left:0.5rem">--</span>
+        </div>
+        <div style="font-size:1.5rem; font-weight:700" id="d-sig-score">--</div>
+      </div>
+      <div id="d-sig-reasons" style="margin-top:1rem; font-size:0.85rem"></div>
+    </div>
+
+    <!-- Positions -->
+    <div class="card">
+      <h2>Positions Ouvertes (<span id="d-poscount">0</span>)</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Asset</th><th>Dir</th><th>Lot</th><th>P&amp;L</th></tr></thead>
+          <tbody id="d-positions">
+            <tr><td colspan="4" style="color:var(--text2); text-align:center">Aucune position</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div class="card" style="margin-top:1.5rem">
+    <h2>Journal</h2>
+    <div id="d-log" style="font-family:monospace; font-size:0.8rem; max-height:200px; overflow-y:auto"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function fmt(n) { return typeof n === 'number' ? '$' + n.toFixed(2) : '--'; }
+
+function render(d) {
+  document.getElementById('d-balance').textContent = fmt(d.balance);
+  document.getElementById('d-equity').textContent = fmt(d.equity);
+
+  var pl = document.getElementById('d-openpl');
+  pl.textContent = (d.openPL >= 0 ? '+' : '') + (d.openPL || 0).toFixed(2);
+  pl.className = 'stat-value ' + (d.openPL >= 0 ? 'stat-green' : 'stat-red');
+
+  var gr = document.getElementById('d-growth');
+  gr.textContent = (d.growth || 0).toFixed(2) + '%';
+  gr.className = 'stat-value ' + (d.growth >= 0 ? 'stat-green' : 'stat-red');
+
+  document.getElementById('d-drawdown').textContent = (d.drawdown || 0).toFixed(2) + '%';
+  document.getElementById('d-winrate').textContent = (d.winRate || 0).toFixed(1) + '%';
+
+  if (d.signal) {
+    document.getElementById('d-sig-asset').textContent = d.signal.asset || '--';
+    var st = document.getElementById('d-sig-type');
+    st.textContent = d.signal.type || '--';
+    st.className = 'status-badge ' + (d.signal.type === 'BUY' ? 'status-running' : d.signal.type === 'SELL' ? 'status-stopped' : 'status-configured');
+    document.getElementById('d-sig-score').textContent = (d.signal.score || 0) + '/100';
+
+    var rhtml = '';
+    (d.signal.reasons || []).forEach(function(r) {
+      rhtml += '<div style="margin-bottom:0.25rem">' +
+        (r.ok ? '<span style="color:var(--green)">&#10003;</span>' : '<span style="color:var(--red)">&#10007;</span>') +
+        ' ' + esc(r.text) + '</div>';
+    });
+    document.getElementById('d-sig-reasons').innerHTML = rhtml;
+  }
+
+  var pos = d.positions || [];
+  document.getElementById('d-poscount').textContent = pos.length;
+  var pb = document.getElementById('d-positions');
+  if (pos.length === 0) {
+    pb.innerHTML = '<tr><td colspan="4" style="color:var(--text2);text-align:center">Aucune position</td></tr>';
+  } else {
+    var h = '';
+    pos.forEach(function(p) {
+      var plc = (p.pl || 0) >= 0 ? 'stat-green' : 'stat-red';
+      h += '<tr><td>' + esc(p.asset) + '</td><td class="' +
+        (p.dir === 'BUY' ? 'stat-green' : 'stat-red') + '">' + esc(p.dir) +
+        '</td><td>' + p.lot + '</td><td class="' + plc + '">' +
+        ((p.pl || 0) >= 0 ? '+' : '') + (p.pl || 0).toFixed(2) + '</td></tr>';
+    });
+    pb.innerHTML = h;
+  }
+
+  var logEl = document.getElementById('d-log');
+  var lhtml = '';
+  (d.log || []).slice(-20).forEach(function(l) {
+    var tc = l.type === 'BUY' ? 'var(--green)' : l.type === 'SELL' ? 'var(--red)' :
+             l.type === 'WARN' ? 'var(--gold)' : 'var(--text2)';
+    lhtml += '<div style="padding:0.2rem 0"><span style="color:var(--text2)">' +
+      esc(l.time) + '</span> <span style="color:' + tc + '">[' + esc(l.type) + ']</span> ' +
+      esc(l.msg) + '</div>';
+  });
+  logEl.innerHTML = lhtml;
+}
+
+function loadData() {
+  fetch('/api/trading-data?t=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(render)
+    .catch(function() {});
+}
+
+function startTrading() {
+  fetch('/api/start-trading', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function(d) { if (d.ok) location.reload(); else alert(d.error); });
+}
+
+function stopTrading() {
+  if (!confirm('Arreter le trading ?')) return;
+  fetch('/api/stop-trading', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function() { location.reload(); });
+}
+
+loadData();
+setInterval(loadData, 3000);
+</script>
+{% endblock %}

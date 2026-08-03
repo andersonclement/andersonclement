@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Activation - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="logo">
+      <h1>SmartTrader 7CAS</h1>
+      <p>Activez votre compte trading</p>
+    </div>
+
+    <form method="POST">
+      <div class="form-group">
+        <label for="activation_code">Code d'activation</label>
+        <input type="text" id="activation_code" name="activation_code"
+               placeholder="Ex: A1B2C3D4" required
+               style="text-transform:uppercase; letter-spacing:0.15em; text-align:center; font-size:1.1rem">
+      </div>
+      <div class="form-group">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Mot de passe (6+ caracteres)</label>
+        <input type="password" id="password" name="password" minlength="6" required>
+      </div>
+      <div class="form-group">
+        <label for="confirm_password">Confirmer le mot de passe</label>
+        <input type="password" id="confirm_password" name="confirm_password" required>
+      </div>
+      <button type="submit" class="btn btn-green btn-block">Activer mon compte</button>
+    </form>
+
+    <div class="auth-footer">
+      Deja un compte ?
+      <a href="{{ url_for('login') }}">Se connecter</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

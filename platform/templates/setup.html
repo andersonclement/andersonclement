@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block title %}Configuration Trading - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="container-sm" style="padding-top:3rem">
+  <div class="card">
+    <h2>Identifiants Trading Exness</h2>
+    <p style="color:var(--text2); font-size:0.875rem; margin-bottom:1.5rem">
+      Vos identifiants sont chiffres (AES-256) et ne sont jamais stockes en clair.
+    </p>
+
+    {% if display_account %}
+    <div style="background:var(--bg3); border-radius:8px; padding:1rem; margin-bottom:1.5rem">
+      <div style="font-size:0.8rem; color:var(--text2); text-transform:uppercase">Compte actuel</div>
+      <div style="font-size:1.1rem; margin-top:0.25rem">
+        <span style="color:var(--gold)">{{ display_account.number_masked }}</span>
+        <span style="color:var(--text2); margin-left:0.5rem">{{ display_account.server }}</span>
+      </div>
+    </div>
+    {% endif %}
+
+    <form method="POST">
+      <div class="form-group">
+        <label for="account_number">Numero de compte Exness</label>
+        <input type="text" id="account_number" name="account_number"
+               placeholder="Ex: 12345678" required>
+      </div>
+      <div class="form-group">
+        <label for="trading_password">Mot de passe trading</label>
+        <input type="password" id="trading_password" name="trading_password" required>
+      </div>
+      <div class="form-group">
+        <label for="server">Serveur</label>
+        <select id="server" name="server" required>
+          <option value="">-- Selectionnez --</option>
+          <option value="Exness-MT5Real">Exness-MT5Real</option>
+          <option value="Exness-MT5Real2">Exness-MT5Real2</option>
+          <option value="Exness-MT5Real3">Exness-MT5Real3</option>
+          <option value="Exness-MT5Real4">Exness-MT5Real4</option>
+          <option value="Exness-MT5Real6">Exness-MT5Real6</option>
+          <option value="Exness-MT5Real7">Exness-MT5Real7</option>
+          <option value="Exness-MT5Real8">Exness-MT5Real8</option>
+          <option value="Exness-MT5Real9">Exness-MT5Real9</option>
+          <option value="Exness-MT5Trial">Exness-MT5Trial (Demo)</option>
+          <option value="Exness-MT5Trial2">Exness-MT5Trial2 (Demo)</option>
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">
+        {{ "Mettre a jour" if account else "Enregistrer" }}
+      </button>
+    </form>
+  </div>
+</div>
+{% endblock %}

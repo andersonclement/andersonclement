@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Connexion - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="logo">
+      <h1>SmartTrader 7CAS</h1>
+      <p>Trading automatique intelligent</p>
+    </div>
+
+    <form method="POST">
+      <div class="form-group">
+        <label for="username">Nom d'utilisateur</label>
+        <input type="text" id="username" name="username" required autofocus>
+      </div>
+      <div class="form-group">
+        <label for="password">Mot de passe</label>
+        <input type="password" id="password" name="password" required>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block">Se connecter</button>
+    </form>
+
+    <div class="auth-footer">
+      Pas encore de compte ?
+      <a href="{{ url_for('register') }}">Activer avec un code</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

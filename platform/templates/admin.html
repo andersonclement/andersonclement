@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Administration - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 style="font-size:1.5rem; margin-bottom:1.5rem">Administration</h1>
+
+  <!-- Generate codes -->
+  <div class="card">
+    <h2>Generer des codes d'activation</h2>
+    <form method="POST" action="{{ url_for('generate_codes') }}" class="flex gap-2 flex-center" style="flex-wrap:wrap">
+      <div class="form-group" style="margin-bottom:0; flex:1; min-width:120px">
+        <label for="count">Nombre</label>
+        <input type="number" id="count" name="count" value="5" min="1" max="50">
+      </div>
+      <div class="form-group" style="margin-bottom:0; flex:1; min-width:120px">
+        <label for="days">Duree (jours)</label>
+        <input type="number" id="days" name="days" value="30" min="1" max="365">
+      </div>
+      <button type="submit" class="btn btn-primary" style="margin-top:1.2rem">Generer</button>
+    </form>
+  </div>
+
+  <!-- Codes list -->
+  <div class="card">
+    <h2>Codes d'activation ({{ codes|length }})</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Duree</th>
+            <th>Statut</th>
+            <th>Utilise par</th>
+            <th>Expire le</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for code in codes %}
+          <tr>
+            <td><span class="code-display">{{ code.code }}</span></td>
+            <td>{{ code.max_days }}j</td>
+            <td>
+              {% if code.is_used %}
+              <span class="status-badge status-stopped">Utilise</span>
+              {% else %}
+              <span class="status-badge status-running">Disponible</span>
+              {% endif %}
+            </td>
+            <td>{{ code.used_by or '—' }}</td>
+            <td>{{ code.expires_at.strftime('%d/%m/%Y') if code.expires_at else '—' }}</td>
+          </tr>
+          {% endfor %}
+          {% if not codes %}
+          <tr><td colspan="5" style="text-align:center; color:var(--text2)">Aucun code genere</td></tr>
+          {% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Users list -->
+  <div class="card">
+    <h2>Utilisateurs ({{ users|length }})</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Utilisateur</th>
+            <th>Role</th>
+            <th>Statut</th>
+            <th>Trading</th>
+            <th>Inscrit le</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr>
+            <td style="font-weight:600">{{ user.username }}</td>
+            <td>
+              {% if user.is_admin %}
+              <span class="status-badge" style="background:rgba(245,158,11,0.15); color:var(--gold)">Admin</span>
+              {% else %}
+              <span style="color:var(--text2)">Trader</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if user.is_active_account %}
+              <span class="status-badge status-running">Actif</span>
+              {% else %}
+              <span class="status-badge status-stopped">Desactive</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if user.trading_account %}
+              <span class="status-badge status-configured">Configure</span>
+              {% else %}
+              <span style="color:var(--text2)">—</span>
+              {% endif %}
+            </td>
+            <td>{{ user.created_at.strftime('%d/%m/%Y') if user.created_at else '—' }}</td>
+            <td>
+              {% if not user.is_admin %}
+              <form method="POST" action="{{ url_for('toggle_user', user_id=user.id) }}" style="display:inline">
+                {% if user.is_active_account %}
+                <button type="submit" class="btn btn-red btn-sm">Desactiver</button>
+                {% else %}
+                <button type="submit" class="btn btn-green btn-sm">Activer</button>
+                {% endif %}
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
