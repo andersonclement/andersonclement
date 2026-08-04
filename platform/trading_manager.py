@@ -1,11 +1,18 @@
-"""Interface for managing MT5 trading instances per user.
+"""Manages MT5 trading instances per user via MetaApi cloud.
 
-Designed to work with MetaApi (metaapi.cloud) or a local MT5 bridge.
-Each user gets an isolated trading instance with their own credentials.
+MetaApi (metaapi.cloud) connects to MetaTrader accounts in the cloud,
+no local MT5 installation needed. Each user's credentials are decrypted
+on-the-fly to provision a cloud account, then streamed for live data.
+
+Set METAAPI_TOKEN in environment to enable cloud trading.
+Without it, the manager runs in local-bridge mode (smarttrader_server.py).
 """
 
 import json
 import logging
+import os
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 
 from models import TradingAccount, db
@@ -13,9 +20,12 @@ from crypto_utils import decrypt
 
 logger = logging.getLogger(__name__)
 
+METAAPI_URL = "https://mt-provisioning-api-v1.agiliumtrade.agiliumtrade.ai"
+METAAPI_DATA_URL = "https://mt-client-api-v1.agiliumtrade.agiliumtrade.ai"
+
 FALLBACK_DATA = {
     "status": "DECONNECTE",
-    "error": "Instance non démarrée",
+    "error": "Instance non demarree",
     "balance": 0, "equity": 0, "openPL": 0, "growth": 0,
     "drawdown": 0, "trades": 0, "winRate": 0, "winTrades": 0,
     "lossTrades": 0, "martingale": "Normal", "losses": 0,
@@ -27,62 +37,139 @@ FALLBACK_DATA = {
 }
 
 
-class TradingManager:
+def _metaapi_token():
+    return os.environ.get("METAAPI_TOKEN", "")
 
-    _instances: dict[int, dict] = {}
+
+def _api_call(method, url, token, body=None):
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("auth-token", token)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            return json.loads(resp.read().decode()), resp.status
+    except urllib.error.HTTPError as e:
+        body_text = e.read().decode() if e.fp else ""
+        logger.error("MetaApi %s %s -> %d: %s", method, url, e.code, body_text[:200])
+        return {"error": body_text}, e.code
+    except Exception as e:
+        logger.error("MetaApi request failed: %s", e)
+        return {"error": str(e)}, 0
+
+
+class TradingManager:
 
     @classmethod
     def start_instance(cls, user_id: int) -> dict:
         account = TradingAccount.query.filter_by(user_id=user_id).first()
         if not account:
-            return {"ok": False, "error": "Aucun compte trading configuré"}
+            return {"ok": False, "error": "Aucun compte trading configure"}
 
         try:
             acct_number = decrypt(account.account_number_enc)
             acct_password = decrypt(account.password_enc)
         except Exception:
-            return {"ok": False, "error": "Erreur de déchiffrement des identifiants"}
+            return {"ok": False, "error": "Erreur de dechiffrement des identifiants"}
 
-        cls._instances[user_id] = {
-            "status": "RUNNING",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "account": acct_number,
+        token = _metaapi_token()
+        if token:
+            result = cls._start_metaapi(account, acct_number, acct_password, token)
+        else:
+            result = cls._start_local(account, acct_number)
+
+        if result["ok"]:
+            account.status = "RUNNING"
+            account.last_seen = datetime.now(timezone.utc)
+            db.session.commit()
+
+        return result
+
+    @classmethod
+    def _start_metaapi(cls, account, acct_number, acct_password, token):
+        if account.metaapi_account_id:
+            deploy_url = f"{METAAPI_URL}/users/current/accounts/{account.metaapi_account_id}/deploy"
+            resp, status = _api_call("POST", deploy_url, token)
+            if status in (200, 204, 409):
+                logger.info("MetaApi account %s deployed", account.metaapi_account_id)
+                return {"ok": True, "message": "Instance MetaApi demarree"}
+            logger.warning("Deploy failed (%d), re-provisioning", status)
+
+        provision_body = {
+            "name": f"SmartTrader-{account.user_id}",
+            "type": "cloud",
+            "login": acct_number,
+            "password": acct_password,
             "server": account.server,
+            "platform": account.platform or "mt5",
         }
+        resp, status = _api_call(
+            "POST", f"{METAAPI_URL}/users/current/accounts", token, provision_body
+        )
+        if status not in (200, 201):
+            return {"ok": False, "error": f"MetaApi provisioning echoue: {resp.get('error', status)}"}
 
-        account.status = "RUNNING"
-        account.last_seen = datetime.now(timezone.utc)
+        account.metaapi_account_id = resp.get("id")
         db.session.commit()
 
-        logger.info("Trading instance started for user %d on %s", user_id, account.server)
-        return {"ok": True, "message": "Instance démarrée"}
+        deploy_url = f"{METAAPI_URL}/users/current/accounts/{account.metaapi_account_id}/deploy"
+        _api_call("POST", deploy_url, token)
+
+        logger.info("MetaApi provisioned account %s for user %d", account.metaapi_account_id, account.user_id)
+        return {"ok": True, "message": "Instance MetaApi provisionnee et demarree"}
+
+    @classmethod
+    def _start_local(cls, account, acct_number):
+        logger.info("Local mode: trading started for account %s on %s", acct_number[:4] + "****", account.server)
+        return {"ok": True, "message": "Instance demarree (mode local)"}
 
     @classmethod
     def stop_instance(cls, user_id: int) -> dict:
-        cls._instances.pop(user_id, None)
         account = TradingAccount.query.filter_by(user_id=user_id).first()
-        if account:
-            account.status = "STOPPED"
-            db.session.commit()
-        return {"ok": True, "message": "Instance arrêtée"}
+        if not account:
+            return {"ok": True, "message": "Aucun compte"}
+
+        token = _metaapi_token()
+        if token and account.metaapi_account_id:
+            undeploy_url = f"{METAAPI_URL}/users/current/accounts/{account.metaapi_account_id}/undeploy"
+            _api_call("POST", undeploy_url, token)
+
+        account.status = "STOPPED"
+        db.session.commit()
+        return {"ok": True, "message": "Instance arretee"}
 
     @classmethod
     def get_status(cls, user_id: int) -> str:
-        info = cls._instances.get(user_id)
-        if info:
-            return info["status"]
         account = TradingAccount.query.filter_by(user_id=user_id).first()
-        return account.status if account else "NOT_CONFIGURED"
+        if not account:
+            return "NOT_CONFIGURED"
+
+        token = _metaapi_token()
+        if token and account.metaapi_account_id and account.status == "RUNNING":
+            url = f"{METAAPI_URL}/users/current/accounts/{account.metaapi_account_id}"
+            resp, status = _api_call("GET", url, token)
+            if status == 200:
+                state = resp.get("state", "")
+                if state == "DEPLOYED":
+                    return "RUNNING"
+                if state == "DEPLOYING":
+                    return "STARTING"
+                return "STOPPED"
+
+        return account.status
 
     @classmethod
     def get_trading_data(cls, user_id: int) -> dict:
         account = TradingAccount.query.filter_by(user_id=user_id).first()
-        if not account or account.status != "RUNNING":
+        if not account or account.status not in ("RUNNING", "STARTING"):
             return FALLBACK_DATA.copy()
+
+        token = _metaapi_token()
+        if token and account.metaapi_account_id:
+            return cls._get_metaapi_data(account, token)
 
         if account.bridge_port:
             try:
-                import urllib.request
                 url = f"http://127.0.0.1:{account.bridge_port}/data"
                 with urllib.request.urlopen(url, timeout=3) as resp:
                     return json.loads(resp.read().decode())
@@ -91,5 +178,70 @@ class TradingManager:
 
         data = FALLBACK_DATA.copy()
         data["status"] = "ACTIF"
-        data["log"] = [{"time": "—", "type": "INFO", "msg": "Connecté au serveur"}]
+        data["log"] = [{"time": "—", "type": "INFO", "msg": "Connecte au serveur"}]
         return data
+
+    @classmethod
+    def _get_metaapi_data(cls, account, token):
+        acct_id = account.metaapi_account_id
+        info_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/account-information"
+        resp, status = _api_call("GET", info_url, token)
+
+        if status != 200:
+            data = FALLBACK_DATA.copy()
+            data["status"] = "CONNEXION"
+            data["log"] = [{"time": "—", "type": "WARN", "msg": "Connexion MetaApi en cours..."}]
+            return data
+
+        pos_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/positions"
+        pos_resp, _ = _api_call("GET", pos_url, token)
+
+        balance = resp.get("balance", 0)
+        equity = resp.get("equity", 0)
+        initial = balance
+        positions = []
+        open_pl = 0
+
+        if isinstance(pos_resp, list):
+            for p in pos_resp:
+                pl = p.get("unrealizedProfit", p.get("profit", 0))
+                open_pl += pl
+                positions.append({
+                    "asset": p.get("symbol", "?"),
+                    "dir": p.get("type", "BUY").replace("POSITION_TYPE_", ""),
+                    "type": p.get("comment", ""),
+                    "lot": p.get("volume", 0),
+                    "entry": p.get("openPrice", 0),
+                    "sl": p.get("stopLoss", 0),
+                    "tp": p.get("takeProfit", 0),
+                    "pl": pl,
+                })
+
+        growth = ((equity - initial) / initial * 100) if initial > 0 else 0
+
+        return {
+            "status": "ACTIF",
+            "balance": balance,
+            "equity": equity,
+            "openPL": open_pl,
+            "growth": round(growth, 2),
+            "drawdown": 0,
+            "trades": 0,
+            "winRate": 0,
+            "winTrades": 0,
+            "lossTrades": 0,
+            "martingale": "Normal",
+            "losses": 0,
+            "initialBalance": initial,
+            "peakEquity": equity,
+            "currentCAS": "—",
+            "prices": {},
+            "signal": {"asset": "—", "type": "ATTENTE", "score": 0, "reasons": []},
+            "lastAction": "",
+            "positions": positions,
+            "log": [
+                {"time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                 "type": "INFO",
+                 "msg": f"Balance: {balance:.2f} | Equity: {equity:.2f}"},
+            ],
+        }

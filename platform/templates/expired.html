@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Licence expiree - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card" style="text-align:center">
+    <div style="font-size:2rem; color:var(--gold); margin-bottom:0.5rem">Licence expiree</div>
+    <p style="color:var(--text2); margin-bottom:1.5rem">
+      Votre licence SmartTrader 7CAS a expire.<br>
+      Contactez l'administrateur pour la renouveler.
+    </p>
+    <a href="{{ url_for('logout') }}" class="btn btn-outline">Se deconnecter</a>
+  </div>
+</div>
+{% endblock %}

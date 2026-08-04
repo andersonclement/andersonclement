@@ -163,16 +163,22 @@ function loadData() {
     .catch(function() {});
 }
 
+var csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
 function startTrading() {
-  fetch('/api/start-trading', { method: 'POST' })
-    .then(function(r) { return r.json(); })
+  fetch('/api/start-trading', {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrfToken}
+  }).then(function(r) { return r.json(); })
     .then(function(d) { if (d.ok) location.reload(); else alert(d.error); });
 }
 
 function stopTrading() {
   if (!confirm('Arreter le trading ?')) return;
-  fetch('/api/stop-trading', { method: 'POST' })
-    .then(function(r) { return r.json(); })
+  fetch('/api/stop-trading', {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrfToken}
+  }).then(function(r) { return r.json(); })
     .then(function() { location.reload(); });
 }
 

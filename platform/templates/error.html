@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Erreur {{ code }} - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card" style="text-align:center">
+    <div style="font-size:3rem; font-weight:700; color:var(--red); margin-bottom:0.5rem">{{ code }}</div>
+    <p style="color:var(--text2); margin-bottom:1.5rem">{{ message }}</p>
+    <a href="{{ url_for('index') }}" class="btn btn-primary">Retour a l'accueil</a>
+  </div>
+</div>
+{% endblock %}

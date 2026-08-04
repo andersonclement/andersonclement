@@ -20,6 +20,7 @@
     {% endif %}
 
     <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
         <label for="account_number">Numero de compte Exness</label>
         <input type="text" id="account_number" name="account_number"

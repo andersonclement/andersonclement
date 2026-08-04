@@ -3,3 +3,6 @@ __pycache__/
 .pytest_cache/
 *.db
 .encryption_key
+.env
+platform/data/
+platform/certbot/
