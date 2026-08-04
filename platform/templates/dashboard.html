@@ -55,6 +55,34 @@
     </div>
   </div>
 
+  <!-- Risk management row -->
+  <div class="dash-grid" id="riskGrid" style="margin-top:1rem">
+    <div class="stat-card">
+      <span class="stat-label">Tier Risque</span>
+      <span class="stat-value" id="d-risk-tier" style="color:var(--gold)">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Risque/Trade</span>
+      <span class="stat-value" id="d-risk-pct">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Lot Recommande</span>
+      <span class="stat-value" id="d-risk-lot">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Perte Jour Restante</span>
+      <span class="stat-value" id="d-risk-daily">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Positions Max</span>
+      <span class="stat-value" id="d-risk-maxpos">--</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Risque Max ($)</span>
+      <span class="stat-value" id="d-risk-amount">--</span>
+    </div>
+  </div>
+
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem">
     <!-- Signal -->
     <div class="card">
@@ -110,6 +138,18 @@ function render(d) {
 
   document.getElementById('d-drawdown').textContent = (d.drawdown || 0).toFixed(2) + '%';
   document.getElementById('d-winrate').textContent = (d.winRate || 0).toFixed(1) + '%';
+
+  if (d.risk) {
+    document.getElementById('d-risk-tier').textContent = d.risk.tier || '--';
+    document.getElementById('d-risk-pct').textContent = (d.risk.risk_percent || 0) + '%';
+    var rl = d.risk.recommended_lots || {};
+    document.getElementById('d-risk-lot').textContent = (rl.sl_30_pips || 0.01).toFixed(2);
+    var daily = document.getElementById('d-risk-daily');
+    daily.textContent = (d.risk.daily_limit_remaining || 0).toFixed(1) + '%';
+    daily.className = 'stat-value ' + (d.risk.can_trade ? 'stat-green' : 'stat-red');
+    document.getElementById('d-risk-maxpos').textContent = d.risk.max_positions || '--';
+    document.getElementById('d-risk-amount').textContent = '$' + (d.risk.max_risk_amount || 0).toFixed(2);
+  }
 
   if (d.signal) {
     document.getElementById('d-sig-asset').textContent = d.signal.asset || '--';

@@ -15,6 +15,7 @@
     <div class="nav-links">
       <a href="{{ url_for('dashboard') }}">Dashboard</a>
       <a href="{{ url_for('setup_trading') }}">Configuration</a>
+      <a href="{{ url_for('risk_settings') }}">Risque</a>
       {% if current_user.is_admin %}
       <a href="{{ url_for('admin_panel') }}">Admin</a>
       {% endif %}

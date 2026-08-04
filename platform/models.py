@@ -57,3 +57,9 @@ class TradingAccount(db.Model):
     bridge_port = db.Column(db.Integer, nullable=True)
     last_seen = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+
+    risk_percent = db.Column(db.Float, default=1.0)
+    max_daily_loss_pct = db.Column(db.Float, default=5.0)
+    max_positions = db.Column(db.Integer, default=3)
+    daily_loss_realized = db.Column(db.Float, default=0.0)
+    daily_loss_date = db.Column(db.String(10), nullable=True)

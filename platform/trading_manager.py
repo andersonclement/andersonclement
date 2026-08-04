@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from models import TradingAccount, db
 from crypto_utils import decrypt
+from risk_manager import get_risk_profile
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,26 @@ class TradingManager:
 
         growth = ((equity - initial) / initial * 100) if initial > 0 else 0
 
+        risk = get_risk_profile(account.user_id, balance)
+
+        log_entries = [
+            {"time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+             "type": "INFO",
+             "msg": f"Balance: {balance:.2f} | Equity: {equity:.2f}"},
+        ]
+        if risk:
+            log_entries.append({
+                "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                "type": "INFO",
+                "msg": f"Risque: {risk['risk_percent']}% | Lot recommande: {risk['recommended_lots']['sl_30_pips']} | Tier: {risk['tier']}",
+            })
+            if not risk["can_trade"]:
+                log_entries.append({
+                    "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
+                    "type": "WARN",
+                    "msg": f"Limite de perte journaliere atteinte ({risk['max_daily_loss_pct']}%) - Trading suspendu",
+                })
+
         return {
             "status": "ACTIF",
             "balance": balance,
@@ -239,9 +260,6 @@ class TradingManager:
             "signal": {"asset": "—", "type": "ATTENTE", "score": 0, "reasons": []},
             "lastAction": "",
             "positions": positions,
-            "log": [
-                {"time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-                 "type": "INFO",
-                 "msg": f"Balance: {balance:.2f} | Equity: {equity:.2f}"},
-            ],
+            "risk": risk,
+            "log": log_entries,
         }

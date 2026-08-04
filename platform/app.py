@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from models import db, User, ActivationCode, TradingAccount
 from crypto_utils import encrypt, decrypt
 from trading_manager import TradingManager
+from risk_manager import get_risk_profile, update_risk_settings
 
 
 def create_app():
@@ -278,6 +279,47 @@ def create_app():
     def stop_trading():
         result = TradingManager.stop_instance(current_user.id)
         return jsonify(result)
+
+    # ---------- Risk Management ----------
+
+    @app.route("/api/risk-profile")
+    @login_required
+    @limiter.limit("60 per minute")
+    def api_risk_profile():
+        data = TradingManager.get_trading_data(current_user.id)
+        balance = data.get("balance", 0)
+        profile = get_risk_profile(current_user.id, balance)
+        if not profile:
+            return jsonify({"error": "Compte non configure"}), 404
+        return jsonify(profile)
+
+    @app.route("/risk-settings", methods=["GET", "POST"])
+    @login_required
+    def risk_settings():
+        account = TradingAccount.query.filter_by(user_id=current_user.id).first()
+        if not account:
+            flash("Configurez d'abord votre compte trading.", "error")
+            return redirect(url_for("setup_trading"))
+
+        if request.method == "POST":
+            risk_pct = request.form.get("risk_percent", "")
+            max_pos = request.form.get("max_positions", "")
+            max_daily = request.form.get("max_daily_loss_pct", "")
+
+            try:
+                r = float(risk_pct) if risk_pct else None
+                m = int(max_pos) if max_pos else None
+                d = float(max_daily) if max_daily else None
+            except ValueError:
+                flash("Valeurs invalides.", "error")
+                return render_template("risk_settings.html", account=account)
+
+            update_risk_settings(current_user.id, r, m, d)
+            logger.info("User '%s' updated risk settings", current_user.username)
+            flash("Parametres de risque mis a jour.", "success")
+            return redirect(url_for("dashboard"))
+
+        return render_template("risk_settings.html", account=account)
 
     # ---------- Admin ----------
 
