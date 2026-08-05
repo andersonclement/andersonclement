@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from models import TradingAccount, db
 from crypto_utils import decrypt
 from risk_manager import get_risk_profile
+from strategy_engine import analyze_all, SYMBOL_LABELS
 
 logger = logging.getLogger(__name__)
 
@@ -222,23 +223,62 @@ class TradingManager:
 
         risk = get_risk_profile(account.user_id, balance)
 
+        now_str = datetime.now(timezone.utc).strftime("%H:%M:%S")
         log_entries = [
-            {"time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-             "type": "INFO",
-             "msg": f"Balance: {balance:.2f} | Equity: {equity:.2f}"},
+            {"time": now_str, "type": "INFO", "msg": f"Balance: {balance:.2f} | Equity: {equity:.2f}"},
         ]
+
+        analysis = None
+        signal_data = {"asset": "—", "type": "ATTENTE", "score": 0, "reasons": []}
+        current_cas = "—"
+        pipeline = {}
+
+        try:
+            analysis = analyze_all(acct_id, token)
+            best = analysis.get("best", {})
+            if best.get("direction", "ATTENTE") != "ATTENTE":
+                signal_data = {
+                    "asset": best.get("asset", "—"),
+                    "type": best.get("direction", "ATTENTE"),
+                    "score": best.get("score", 0),
+                    "reasons": best.get("reasons", []),
+                }
+                current_cas = best.get("cas", "—")
+                log_entries.append({"time": now_str, "type": best["direction"], "msg": f"{best['cas']} {best['direction']} {best.get('asset', '')} score={best['score']}"})
+            else:
+                signal_data["reasons"] = best.get("reasons", [])
+                current_cas = best.get("cas", "—")
+
+            pipeline = best.get("pipeline", {})
+
+            if not analysis.get("trading_hours", True):
+                log_entries.append({"time": now_str, "type": "INFO", "msg": "Hors heures de trading (8h-22h GMT)"})
+            elif analysis.get("news_time", False):
+                log_entries.append({"time": now_str, "type": "WARN", "msg": "Pause news — buffer 30 min"})
+
+            for sig in analysis.get("all_signals", []):
+                if sig.get("direction") != "ATTENTE":
+                    log_entries.append({"time": now_str, "type": "INFO", "msg": f"{sig.get('symbol', '?')}: {sig['cas']} {sig['direction']} score={sig['score']}"})
+        except Exception as e:
+            logger.warning("Strategy analysis failed: %s", e)
+            log_entries.append({"time": now_str, "type": "WARN", "msg": "Analyse strategie en cours..."})
+
         if risk:
-            log_entries.append({
-                "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-                "type": "INFO",
-                "msg": f"Risque: {risk['risk_percent']}% | Lot recommande: {risk['recommended_lots']['sl_30_pips']} | Tier: {risk['tier']}",
-            })
+            log_entries.append({"time": now_str, "type": "INFO", "msg": f"Risque: {risk['risk_percent']}% | Lot: {risk['recommended_lots']['sl_30_pips']} | Tier: {risk['tier']}"})
             if not risk["can_trade"]:
-                log_entries.append({
-                    "time": datetime.now(timezone.utc).strftime("%H:%M:%S"),
-                    "type": "WARN",
-                    "msg": f"Limite de perte journaliere atteinte ({risk['max_daily_loss_pct']}%) - Trading suspendu",
-                })
+                log_entries.append({"time": now_str, "type": "WARN", "msg": f"Limite perte journaliere atteinte ({risk['max_daily_loss_pct']}%)"})
+
+        indicators = {}
+        if analysis and analysis.get("best"):
+            b = analysis["best"]
+            indicators = {
+                "stochRSI_K": b.get("stoch_k", 0),
+                "adx": b.get("adx", 0),
+                "atr": b.get("atr", 0),
+                "bb_width": b.get("bb_width", 0),
+                "macd": b.get("macd", 0),
+                "macd_signal": b.get("macd_signal", 0),
+            }
 
         return {
             "status": "ACTIF",
@@ -255,11 +295,13 @@ class TradingManager:
             "losses": 0,
             "initialBalance": initial,
             "peakEquity": equity,
-            "currentCAS": "—",
+            "currentCAS": current_cas,
             "prices": {},
-            "signal": {"asset": "—", "type": "ATTENTE", "score": 0, "reasons": []},
+            "signal": signal_data,
             "lastAction": "",
             "positions": positions,
             "risk": risk,
+            "indicators": indicators,
+            "pipeline": pipeline,
             "log": log_entries,
         }

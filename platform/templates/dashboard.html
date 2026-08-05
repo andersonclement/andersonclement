@@ -55,35 +55,60 @@
     </div>
   </div>
 
-  <!-- Risk management row -->
-  <div class="dash-grid" id="riskGrid" style="margin-top:1rem">
-    <div class="stat-card">
-      <span class="stat-label">Tier Risque</span>
-      <span class="stat-value" id="d-risk-tier" style="color:var(--gold)">--</span>
+  <!-- CAS Pipeline -->
+  <div class="card" style="margin-top:1.5rem">
+    <div class="flex flex-between flex-center">
+      <h2 style="margin:0">Pipeline CAS</h2>
+      <span class="status-badge" id="d-cas-badge" style="font-size:0.85rem">--</span>
     </div>
-    <div class="stat-card">
-      <span class="stat-label">Risque/Trade</span>
-      <span class="stat-value" id="d-risk-pct">--</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Lot Recommande</span>
-      <span class="stat-value" id="d-risk-lot">--</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Perte Jour Restante</span>
-      <span class="stat-value" id="d-risk-daily">--</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Positions Max</span>
-      <span class="stat-value" id="d-risk-maxpos">--</span>
-    </div>
-    <div class="stat-card">
-      <span class="stat-label">Risque Max ($)</span>
-      <span class="stat-value" id="d-risk-amount">--</span>
+    <div id="d-pipeline" style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap; align-items:center">
+      <div class="pip-step" id="pip-b1"><span class="pip-code">B1</span><span class="pip-label">Scan</span></div>
+      <span class="pip-arrow">&rarr;</span>
+      <div class="pip-step" id="pip-b2"><span class="pip-code">B2</span><span class="pip-label">Cassure</span></div>
+      <span class="pip-arrow">&rarr;</span>
+      <div class="pip-step" id="pip-cas"><span class="pip-code">CAS</span><span class="pip-label">Detection</span></div>
+      <span class="pip-arrow">&rarr;</span>
+      <div class="pip-step" id="pip-entry"><span class="pip-code">ENT</span><span class="pip-label">Entree</span></div>
+      <span class="pip-arrow">&rarr;</span>
+      <div class="pip-step" id="pip-exit"><span class="pip-code">OUT</span><span class="pip-label">Sortie</span></div>
     </div>
   </div>
 
+  <!-- Indicators + Signal -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem">
+    <!-- Indicators -->
+    <div class="card">
+      <h2>Indicateurs</h2>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem">
+        <div class="ind-item">
+          <span class="ind-label">StochRSI K</span>
+          <span class="ind-value" id="d-ind-stoch">--</span>
+          <div class="ind-bar"><div class="ind-fill" id="d-ind-stoch-bar" style="width:50%"></div></div>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">ADX</span>
+          <span class="ind-value" id="d-ind-adx">--</span>
+          <div class="ind-bar"><div class="ind-fill" id="d-ind-adx-bar" style="width:0%"></div></div>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">ATR</span>
+          <span class="ind-value" id="d-ind-atr">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">BB Width</span>
+          <span class="ind-value" id="d-ind-bb">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">MACD</span>
+          <span class="ind-value" id="d-ind-macd">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">MACD Signal</span>
+          <span class="ind-value" id="d-ind-macds">--</span>
+        </div>
+      </div>
+    </div>
+
     <!-- Signal -->
     <div class="card">
       <h2>Signal Actuel</h2>
@@ -95,6 +120,40 @@
         <div style="font-size:1.5rem; font-weight:700" id="d-sig-score">--</div>
       </div>
       <div id="d-sig-reasons" style="margin-top:1rem; font-size:0.85rem"></div>
+    </div>
+  </div>
+
+  <!-- Risk + Positions -->
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-top:1.5rem">
+    <!-- Risk -->
+    <div class="card">
+      <h2>Gestion du Risque</h2>
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:0.75rem">
+        <div class="ind-item">
+          <span class="ind-label">Tier</span>
+          <span class="ind-value" id="d-risk-tier" style="color:var(--gold)">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Risque</span>
+          <span class="ind-value" id="d-risk-pct">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Lot</span>
+          <span class="ind-value" id="d-risk-lot">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Perte/Jour</span>
+          <span class="ind-value" id="d-risk-daily">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Pos. Max</span>
+          <span class="ind-value" id="d-risk-maxpos">--</span>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Risque $</span>
+          <span class="ind-value" id="d-risk-amount">--</span>
+        </div>
+      </div>
     </div>
 
     <!-- Positions -->
@@ -117,12 +176,63 @@
     <div id="d-log" style="font-family:monospace; font-size:0.8rem; max-height:200px; overflow-y:auto"></div>
   </div>
 </div>
+
+<style>
+.pip-step {
+  display:flex; flex-direction:column; align-items:center;
+  background:var(--bg3); border:1px solid var(--border);
+  border-radius:8px; padding:0.5rem 0.75rem; min-width:60px;
+  transition: all 0.3s;
+}
+.pip-step.active {
+  border-color:var(--green); background:rgba(16,185,129,0.1);
+}
+.pip-step.signal-buy { border-color:var(--green); background:rgba(16,185,129,0.15); }
+.pip-step.signal-sell { border-color:var(--red); background:rgba(239,68,68,0.15); }
+.pip-code {
+  font-size:0.7rem; font-weight:700; letter-spacing:0.05em;
+  text-transform:uppercase; color:var(--text2);
+}
+.pip-step.active .pip-code,
+.pip-step.signal-buy .pip-code { color:var(--green); }
+.pip-step.signal-sell .pip-code { color:var(--red); }
+.pip-label { font-size:0.7rem; color:var(--text2); margin-top:0.15rem; }
+.pip-arrow { color:var(--text2); font-size:1.1rem; }
+.ind-item { display:flex; flex-direction:column; gap:0.15rem; }
+.ind-label { font-size:0.7rem; color:var(--text2); text-transform:uppercase; letter-spacing:0.03em; }
+.ind-value { font-size:0.95rem; font-weight:600; }
+.ind-bar { height:4px; background:var(--bg3); border-radius:2px; margin-top:0.2rem; overflow:hidden; }
+.ind-fill { height:100%; border-radius:2px; background:var(--gold); transition:width 0.5s; }
+</style>
 {% endblock %}
 
 {% block scripts %}
 <script>
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmt(n) { return typeof n === 'number' ? '$' + n.toFixed(2) : '--'; }
+
+function renderPipeline(pipeline, cas) {
+  var steps = ['b1','b2','cas','entry','exit'];
+  var ids = ['pip-b1','pip-b2','pip-cas','pip-entry','pip-exit'];
+  for (var i = 0; i < ids.length; i++) {
+    var el = document.getElementById(ids[i]);
+    if (!el) continue;
+    el.className = 'pip-step';
+    var lbl = el.querySelector('.pip-label');
+    var code = el.querySelector('.pip-code');
+    if (pipeline && pipeline[steps[i]]) {
+      var s = pipeline[steps[i]];
+      if (s.active) el.classList.add('active');
+      if (lbl) lbl.textContent = s.detail || s.label || '';
+      if (code) code.textContent = s.label || steps[i].toUpperCase();
+    }
+  }
+  var badge = document.getElementById('d-cas-badge');
+  if (badge) {
+    badge.textContent = cas || '--';
+    badge.className = 'status-badge ' + (cas && cas !== '—' ? 'status-running' : 'status-configured');
+  }
+}
 
 function render(d) {
   document.getElementById('d-balance').textContent = fmt(d.balance);
@@ -139,6 +249,26 @@ function render(d) {
   document.getElementById('d-drawdown').textContent = (d.drawdown || 0).toFixed(2) + '%';
   document.getElementById('d-winrate').textContent = (d.winRate || 0).toFixed(1) + '%';
 
+  renderPipeline(d.pipeline, d.currentCAS);
+
+  if (d.indicators) {
+    var ind = d.indicators;
+    var sk = (ind.stochRSI_K || 0);
+    document.getElementById('d-ind-stoch').textContent = sk.toFixed(3);
+    document.getElementById('d-ind-stoch-bar').style.width = (sk * 100) + '%';
+    document.getElementById('d-ind-stoch-bar').style.background = sk > 0.8 ? 'var(--red)' : sk < 0.2 ? 'var(--green)' : 'var(--gold)';
+    var adx = ind.adx || 0;
+    document.getElementById('d-ind-adx').textContent = adx.toFixed(1);
+    document.getElementById('d-ind-adx-bar').style.width = Math.min(adx, 60) / 60 * 100 + '%';
+    document.getElementById('d-ind-adx-bar').style.background = adx >= 25 ? 'var(--green)' : adx <= 20 ? 'var(--red)' : 'var(--gold)';
+    document.getElementById('d-ind-atr').textContent = (ind.atr || 0).toFixed(4);
+    document.getElementById('d-ind-bb').textContent = (ind.bb_width || 0).toFixed(2) + '%';
+    var macdEl = document.getElementById('d-ind-macd');
+    macdEl.textContent = (ind.macd || 0).toFixed(4);
+    macdEl.style.color = (ind.macd || 0) > (ind.macd_signal || 0) ? 'var(--green)' : 'var(--red)';
+    document.getElementById('d-ind-macds').textContent = (ind.macd_signal || 0).toFixed(4);
+  }
+
   if (d.risk) {
     document.getElementById('d-risk-tier').textContent = d.risk.tier || '--';
     document.getElementById('d-risk-pct').textContent = (d.risk.risk_percent || 0) + '%';
@@ -146,7 +276,7 @@ function render(d) {
     document.getElementById('d-risk-lot').textContent = (rl.sl_30_pips || 0.01).toFixed(2);
     var daily = document.getElementById('d-risk-daily');
     daily.textContent = (d.risk.daily_limit_remaining || 0).toFixed(1) + '%';
-    daily.className = 'stat-value ' + (d.risk.can_trade ? 'stat-green' : 'stat-red');
+    daily.style.color = d.risk.can_trade ? 'var(--green)' : 'var(--red)';
     document.getElementById('d-risk-maxpos').textContent = d.risk.max_positions || '--';
     document.getElementById('d-risk-amount').textContent = '$' + (d.risk.max_risk_amount || 0).toFixed(2);
   }
