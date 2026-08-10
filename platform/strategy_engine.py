@@ -1,9 +1,10 @@
-"""CAS 7 strategy engine — Python port of SmartTrader_7CAS.mq5.
+"""CAS 8 strategy engine — Python port of SmartTrader extended.
 
-Fetches candle/indicator data from MetaApi and runs the full 7-CAS
+Fetches candle/indicator data from MetaApi and runs the full 8-CAS
 pipeline: regime detection, signal generation, SL/TP calculation.
-The EA's logic is faithfully ported so the platform produces the same
-signals as the MQL5 bot.
+CAS 1-7 faithfully port the MQL5 EA; CAS 8 adds advanced SMC
+(Smart Money Concepts) with FVG, Liquidity Sweeps, Premium/Discount
+zones, and multi-confluence scoring.
 
 Indicator data is pulled from MetaApi's REST endpoints; no local MT5
 installation is required.
@@ -50,6 +51,7 @@ CAS_PARAMS = {
     "CAS5_SMC":          {"sl_mult": 1.5, "tp_mult": 2.5, "base_score": 80},
     "CAS6_RETOURNEMENT": {"sl_mult": 1.0, "tp_mult": 2.0, "base_score": 65},
     "CAS7_FIBONACCI":    {"sl_mult": 1.5, "tp_mult": 2.5, "base_score": 75},
+    "CAS8_SMC_AVANCE":   {"sl_mult": 1.2, "tp_mult": 3.0, "base_score": 85},
 }
 
 SYMBOLS = ["XAUUSDm", "XAGUSDm", "USOILm"]
@@ -394,6 +396,175 @@ def is_bearish_sh(opens, closes, highs, lows):
     return False
 
 
+# ── Advanced SMC (CAS 8) ────────────────────────────────────────
+
+def detect_fvg_bullish(opens, closes, highs, lows, atr):
+    """Fair Value Gap haussier: gap between candle i-2 high and candle i low."""
+    if len(highs) < 4 or atr == 0:
+        return False, 0
+    for i in range(len(highs) - 1, max(len(highs) - 10, 2), -1):
+        gap = lows[i] - highs[i - 2]
+        if gap > atr * FVG_MIN_SIZE and closes[i] > opens[i]:
+            return True, gap
+    return False, 0
+
+
+def detect_fvg_bearish(opens, closes, highs, lows, atr):
+    """Fair Value Gap baissier: gap between candle i-2 low and candle i high."""
+    if len(highs) < 4 or atr == 0:
+        return False, 0
+    for i in range(len(highs) - 1, max(len(highs) - 10, 2), -1):
+        gap = lows[i - 2] - highs[i]
+        if gap > atr * FVG_MIN_SIZE and closes[i] < opens[i]:
+            return True, gap
+    return False, 0
+
+
+def detect_liquidity_sweep_bull(highs, lows, closes):
+    """Liquidity sweep haussier: prix balaye les lows puis remonte."""
+    if len(lows) < LZ_LOOKBACK:
+        return False
+    recent_low = min(lows[-LZ_LOOKBACK:-3])
+    swept = any(l < recent_low for l in lows[-3:])
+    recovered = closes[-1] > recent_low
+    return swept and recovered
+
+
+def detect_liquidity_sweep_bear(highs, lows, closes):
+    """Liquidity sweep baissier: prix balaye les highs puis redescend."""
+    if len(highs) < LZ_LOOKBACK:
+        return False
+    recent_high = max(highs[-LZ_LOOKBACK:-3])
+    swept = any(h > recent_high for h in highs[-3:])
+    recovered = closes[-1] < recent_high
+    return swept and recovered
+
+
+def is_in_premium_zone(highs, lows, closes):
+    """Prix dans la zone premium (au-dessus du 50% du range)."""
+    if len(highs) < 50:
+        return False
+    swing_high = max(highs[-50:])
+    swing_low = min(lows[-50:])
+    mid = (swing_high + swing_low) / 2
+    return closes[-1] > mid
+
+
+def is_in_discount_zone(highs, lows, closes):
+    """Prix dans la zone discount (en-dessous du 50% du range)."""
+    if len(highs) < 50:
+        return False
+    swing_high = max(highs[-50:])
+    swing_low = min(lows[-50:])
+    mid = (swing_high + swing_low) / 2
+    return closes[-1] < mid
+
+
+def detect_market_structure_shift(highs, lows, closes):
+    """Detect Market Structure Shift (MSS) — changement de structure."""
+    if len(highs) < 20:
+        return 0
+    recent_highs = highs[-20:]
+    recent_lows = lows[-20:]
+    hh_count = 0
+    ll_count = 0
+    for i in range(1, len(recent_highs)):
+        if recent_highs[i] > recent_highs[i - 1]:
+            hh_count += 1
+        if recent_lows[i] < recent_lows[i - 1]:
+            ll_count += 1
+    last5_high = max(highs[-5:])
+    last5_low = min(lows[-5:])
+    prev_high = max(highs[-15:-5]) if len(highs) >= 15 else last5_high
+    prev_low = min(lows[-15:-5]) if len(lows) >= 15 else last5_low
+    if ll_count > hh_count and closes[-1] > prev_high:
+        return 1
+    if hh_count > ll_count and closes[-1] < prev_low:
+        return -1
+    return 0
+
+
+def calc_smc_confluence(opens, closes, highs, lows, atr):
+    """Score de confluence SMC avancee pour CAS 8."""
+    score_bull = 0
+    score_bear = 0
+    details_bull = []
+    details_bear = []
+
+    ob_b = is_bullish_ob(opens, closes, highs, lows)
+    ob_s = is_bearish_ob(opens, closes, highs, lows)
+    if ob_b:
+        score_bull += 15
+        details_bull.append("Order Block haussier")
+    if ob_s:
+        score_bear += 15
+        details_bear.append("Order Block baissier")
+
+    choch_b = is_bullish_choch(highs, lows, closes)
+    choch_s = is_bearish_choch(highs, lows, closes)
+    if choch_b:
+        score_bull += 20
+        details_bull.append("CHoCH haussier")
+    if choch_s:
+        score_bear += 20
+        details_bear.append("CHoCH baissier")
+
+    sh_b = is_bullish_sh(opens, closes, highs, lows)
+    sh_s = is_bearish_sh(opens, closes, highs, lows)
+    if sh_b:
+        score_bull += 15
+        details_bull.append("Stop Hunt haussier")
+    if sh_s:
+        score_bear += 15
+        details_bear.append("Stop Hunt baissier")
+
+    fvg_b, fvg_b_size = detect_fvg_bullish(opens, closes, highs, lows, atr)
+    fvg_s, fvg_s_size = detect_fvg_bearish(opens, closes, highs, lows, atr)
+    if fvg_b:
+        score_bull += 20
+        details_bull.append(f"FVG haussier ({fvg_b_size / atr:.1f}x ATR)")
+    if fvg_s:
+        score_bear += 20
+        details_bear.append(f"FVG baissier ({fvg_s_size / atr:.1f}x ATR)")
+
+    liq_b = detect_liquidity_sweep_bull(highs, lows, closes)
+    liq_s = detect_liquidity_sweep_bear(highs, lows, closes)
+    if liq_b:
+        score_bull += 20
+        details_bull.append("Liquidity Sweep haussier")
+    if liq_s:
+        score_bear += 20
+        details_bear.append("Liquidity Sweep baissier")
+
+    discount = is_in_discount_zone(highs, lows, closes)
+    premium = is_in_premium_zone(highs, lows, closes)
+    if discount:
+        score_bull += 10
+        details_bull.append("Zone Discount (achat)")
+    if premium:
+        score_bear += 10
+        details_bear.append("Zone Premium (vente)")
+
+    mss = detect_market_structure_shift(highs, lows, closes)
+    if mss > 0:
+        score_bull += 15
+        details_bull.append("Market Structure Shift haussier")
+    elif mss < 0:
+        score_bear += 15
+        details_bear.append("Market Structure Shift baissier")
+
+    bos_b = is_bullish_bos(highs, closes)
+    bos_s = is_bearish_bos(lows, closes)
+    if bos_b:
+        score_bull += 10
+        details_bull.append("Break of Structure haussier")
+    if bos_s:
+        score_bear += 10
+        details_bear.append("Break of Structure baissier")
+
+    return score_bull, details_bull, score_bear, details_bear
+
+
 # ── Fibonacci ────────────────────────────────────────────────────
 
 def is_on_fibo_level(highs, lows, closes, atr, direction="bull"):
@@ -513,6 +684,11 @@ def detect_regime(closes, highs, lows, opens, atr, adx, bb_lower, bb_mid, bb_upp
     if adx <= ADX_RANGE and bb_width < 1.5:
         return "CAS3_RANGE"
 
+    smc_bull, _, smc_bear, _ = calc_smc_confluence(opens, closes, highs, lows, atr)
+    best_smc = max(smc_bull, smc_bear)
+    if best_smc >= 50:
+        return "CAS8_SMC_AVANCE"
+
     smc_setup = (
         is_bullish_ob(opens, closes, highs, lows)
         or is_bearish_ob(opens, closes, highs, lows)
@@ -595,6 +771,8 @@ def generate_signal(closes, opens, highs, lows):
         sig, reasons = _get_cas6(closes, opens, highs, lows, stoch_k, rsi_values)
     elif regime == "CAS7_FIBONACCI":
         sig, reasons = _get_cas7(closes, opens, highs, lows, stoch_k, atr)
+    elif regime == "CAS8_SMC_AVANCE":
+        sig, reasons = _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_main, macd_sig)
 
     if is_cas14 and not b2_confirmed and sig != 0:
         reasons.insert(0, {"ok": False, "text": f"Ecart D-K ({ecart_dk:.1f}) < {ECART_DK_MIN} — B2 non confirme"})
@@ -603,6 +781,9 @@ def generate_signal(closes, opens, highs, lows):
     score = params["base_score"]
     if regime == "CAS1_TENDANCE" and sig != 0:
         score = min(40 + adx, 100)
+    elif regime == "CAS8_SMC_AVANCE" and sig != 0:
+        smc_b, _, smc_s, _ = calc_smc_confluence(opens, closes, highs, lows, atr)
+        score = min(50 + max(smc_b, smc_s) // 2, 100)
 
     direction = "BUY" if sig > 0 else "SELL" if sig < 0 else "ATTENTE"
     sl_pips = atr * params["sl_mult"]
@@ -615,7 +796,7 @@ def generate_signal(closes, opens, highs, lows):
         exit_signal = True
 
     branch = ""
-    if regime == "CAS5_SMC" and sig != 0:
+    if regime in ("CAS5_SMC", "CAS8_SMC_AVANCE") and sig != 0:
         branch = detect_branch_cas5(closes, direction)
 
     pyramide = []
@@ -950,6 +1131,50 @@ def _get_cas7(closes, opens, highs, lows, stoch_k, atr):
             {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f})"},
         ]
     return 0, [{"ok": False, "text": "Fibonacci scan — confluence insuffisante"}]
+
+
+def _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_m, macd_s):
+    """CAS 8 — SMC Avance: confluence multi-facteurs Smart Money."""
+    score_bull, det_bull, score_bear, det_bear = calc_smc_confluence(
+        opens, closes, highs, lows, atr
+    )
+
+    pa_bull = is_bullish_pa(opens, closes, highs, lows)
+    pa_bear = is_bearish_pa(opens, closes, highs, lows)
+    macd_bull = macd_m > macd_s
+    macd_bear = macd_m < macd_s
+
+    if score_bull >= 50 and pa_bull and macd_bull and stoch_k <= 0.50:
+        if stoch_k <= STOCHRSI_OS:
+            score_bull += 10
+        reasons = [{"ok": True, "text": f"CAS8 : SMC Avance — confluence {score_bull}pts"}]
+        for d in det_bull:
+            reasons.append({"ok": True, "text": d})
+        reasons.append({"ok": True, "text": "MACD haussier"})
+        reasons.append({"ok": True, "text": "Price Action haussiere"})
+        return 1, reasons
+
+    if score_bear >= 50 and pa_bear and macd_bear and stoch_k >= 0.50:
+        if stoch_k >= STOCHRSI_OB:
+            score_bear += 10
+        reasons = [{"ok": True, "text": f"CAS8 : SMC Avance — confluence {score_bear}pts"}]
+        for d in det_bear:
+            reasons.append({"ok": True, "text": d})
+        reasons.append({"ok": True, "text": "MACD baissier"})
+        reasons.append({"ok": True, "text": "Price Action baissiere"})
+        return -1, reasons
+
+    best = max(score_bull, score_bear)
+    reasons = [
+        {"ok": False, "text": f"SMC Avance scan — confluence {best}pts (min 50)"},
+    ]
+    if det_bull:
+        reasons.append({"ok": True, "text": f"Bull: {', '.join(det_bull[:3])}"})
+    if det_bear:
+        reasons.append({"ok": True, "text": f"Bear: {', '.join(det_bear[:3])}"})
+    if not pa_bull and not pa_bear:
+        reasons.append({"ok": False, "text": "Price Action non confirmee"})
+    return 0, reasons
 
 
 # ── Main analysis entry point ────────────────────────────────────
