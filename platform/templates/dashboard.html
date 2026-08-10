@@ -14,6 +14,7 @@
     </div>
     <div class="flex gap-1">
       {% if account %}
+        <button id="d-autotrade-btn" onclick="toggleAutoTrade()" class="btn btn-sm" style="display:none">--</button>
         {% if status == 'RUNNING' %}
         <span class="status-badge status-running">ACTIF</span>
         <button onclick="stopTrading()" class="btn btn-red btn-sm">Arreter</button>
@@ -124,6 +125,17 @@
         <span class="b12-title">StochRSI K</span>
         <span class="b12-val" id="d-srsi-k">--</span>
       </div>
+    </div>
+  </div>
+
+  <!-- CAS Evolution Grid -->
+  <div class="card" style="margin-top:1.5rem">
+    <div class="flex flex-between flex-center">
+      <h2 style="margin:0">Evolution des CAS</h2>
+      <span style="font-size:0.7rem; color:var(--text2)">Priorite par taux de confiance</span>
+    </div>
+    <div id="d-cas-grid" class="cas-grid" style="margin-top:1rem">
+      <div style="text-align:center; color:var(--text2); padding:1rem">Chargement...</div>
     </div>
   </div>
 
@@ -304,8 +316,51 @@
 .pyr-chip .pyr-lbl { font-weight:700; font-size:0.65rem; color:var(--text2); }
 .pyr-chip .pyr-val { font-weight:600; }
 
+.cas-grid {
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:0.6rem;
+}
+.cas-card {
+  background:var(--bg3); border:1px solid var(--border); border-radius:8px;
+  padding:0.6rem; display:flex; flex-direction:column; gap:0.3rem;
+  transition:all 0.3s; position:relative;
+}
+.cas-card.cas-active {
+  border-color:var(--green); box-shadow:0 0 8px rgba(16,185,129,0.2);
+}
+.cas-card.cas-selected {
+  border-color:var(--gold); box-shadow:0 0 12px rgba(245,158,11,0.3);
+  background:rgba(245,158,11,0.05);
+}
+.cas-card-head {
+  display:flex; justify-content:space-between; align-items:center;
+}
+.cas-rank {
+  font-size:0.6rem; font-weight:700; color:var(--text2);
+  background:var(--bg2); border-radius:4px; padding:0.1rem 0.35rem;
+}
+.cas-name { font-size:0.8rem; font-weight:700; }
+.cas-conf-rate { font-size:0.65rem; color:var(--text2); }
+.cas-bar-wrap {
+  height:6px; background:var(--bg2); border-radius:3px; overflow:hidden;
+}
+.cas-bar-fill {
+  height:100%; border-radius:3px; transition:width 0.5s;
+}
+.cas-bar-fill.ok { background:var(--green); }
+.cas-bar-fill.partial { background:var(--gold); }
+.cas-bar-fill.none { background:var(--border); }
+.cas-status-row {
+  display:flex; justify-content:space-between; align-items:center;
+  font-size:0.65rem;
+}
+.cas-dir { font-weight:700; }
+.cas-dir.buy { color:var(--green); }
+.cas-dir.sell { color:var(--red); }
+.cas-dir.wait { color:var(--text2); }
+
 @media(max-width:768px) {
   .b12-grid { grid-template-columns:repeat(2,1fr); }
+  .cas-grid { grid-template-columns:repeat(2,1fr); }
 }
 </style>
 {% endblock %}
@@ -386,6 +441,46 @@ function setPip(id, data, sig_dir) {
   if (code) code.textContent = data.label || '';
 }
 
+function renderCasGrid(cas_evals, activeCas) {
+  var grid = document.getElementById('d-cas-grid');
+  if (!cas_evals || Object.keys(cas_evals).length === 0) {
+    grid.innerHTML = '<div style="text-align:center;color:var(--text2);padding:1rem">En attente d\'analyse...</div>';
+    return;
+  }
+
+  var sorted = Object.keys(cas_evals).sort(function(a, b) {
+    return (cas_evals[a].priority_rank || 99) - (cas_evals[b].priority_rank || 99);
+  });
+
+  var h = '';
+  sorted.forEach(function(cas) {
+    var ev = cas_evals[cas];
+    var conf = ev.confirmations || 0;
+    var req = ev.required || 1;
+    var pct = Math.round(conf / req * 100);
+    var isActive = ev.valid;
+    var isSelected = cas === activeCas;
+    var barClass = pct >= 100 ? 'ok' : pct > 0 ? 'partial' : 'none';
+    var dirClass = ev.direction === 'BUY' ? 'buy' : ev.direction === 'SELL' ? 'sell' : 'wait';
+    var dirText = ev.direction === 'BUY' ? 'ACHAT' : ev.direction === 'SELL' ? 'VENTE' : 'ATTENTE';
+    var cls = 'cas-card' + (isSelected ? ' cas-selected' : isActive ? ' cas-active' : '');
+
+    h += '<div class="' + cls + '">' +
+      '<div class="cas-card-head">' +
+        '<span class="cas-rank">#' + (ev.priority_rank || '?') + '</span>' +
+        '<span class="cas-conf-rate">' + (ev.confidence_rate || 0) + '%</span>' +
+      '</div>' +
+      '<span class="cas-name">' + esc(ev.label || cas) + '</span>' +
+      '<div class="cas-bar-wrap"><div class="cas-bar-fill ' + barClass + '" style="width:' + Math.min(pct, 100) + '%"></div></div>' +
+      '<div class="cas-status-row">' +
+        '<span>' + conf + '/' + req + '</span>' +
+        '<span class="cas-dir ' + dirClass + '">' + dirText + '</span>' +
+      '</div>' +
+      '</div>';
+  });
+  grid.innerHTML = h;
+}
+
 function render(d) {
   document.getElementById('d-balance').textContent = fmt(d.balance);
   document.getElementById('d-equity').textContent = fmt(d.equity);
@@ -409,6 +504,21 @@ function render(d) {
 
   var sig_dir = d.signal ? d.signal.type : 'ATTENTE';
   renderPipeline(d.pipeline, d.currentCAS, sig_dir);
+  renderCasGrid(d.cas_evaluations, d.currentCAS);
+
+  var atBtn = document.getElementById('d-autotrade-btn');
+  if (atBtn) {
+    atBtn.style.display = 'inline-flex';
+    if (d.auto_trade) {
+      atBtn.textContent = 'Auto: ON';
+      atBtn.className = 'btn btn-sm btn-green';
+    } else {
+      atBtn.textContent = 'Auto: OFF';
+      atBtn.className = 'btn btn-sm';
+      atBtn.style.background = 'var(--bg3)';
+      atBtn.style.border = '1px solid var(--border)';
+    }
+  }
 
   // B1/B2 grid — StochRSI K
   var srsiEl = document.getElementById('d-srsi-k');
@@ -539,6 +649,17 @@ function startTrading() {
     headers: {'X-CSRFToken': csrfToken}
   }).then(function(r) { return r.json(); })
     .then(function(d) { if (d.ok) location.reload(); else alert(d.error); });
+}
+
+function toggleAutoTrade() {
+  fetch('/api/toggle-autotrade', {
+    method: 'POST',
+    headers: {'X-CSRFToken': csrfToken}
+  }).then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.ok) loadData();
+      else alert(d.error || 'Erreur');
+    });
 }
 
 function stopTrading() {

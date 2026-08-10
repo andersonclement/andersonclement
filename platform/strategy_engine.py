@@ -54,6 +54,41 @@ CAS_PARAMS = {
     "CAS8_SMC_AVANCE":   {"sl_mult": 1.2, "tp_mult": 3.0, "base_score": 85},
 }
 
+CAS_CONFIDENCE = {
+    "CAS8_SMC_AVANCE": 97,
+    "CAS5_SMC": 94,
+    "CAS7_FIBONACCI": 93,
+    "CAS1_TENDANCE": 92,
+    "CAS6_RETOURNEMENT": 90,
+    "CAS4_CASSURE": 87,
+    "CAS3_RANGE": 85,
+    "CAS2_SCALPING": 80,
+}
+
+CAS_PRIORITY = sorted(CAS_CONFIDENCE, key=CAS_CONFIDENCE.get, reverse=True)
+
+CAS_MIN_CONFIRMATIONS = {
+    "CAS1_TENDANCE": 4,
+    "CAS2_SCALPING": 3,
+    "CAS3_RANGE": 3,
+    "CAS4_CASSURE": 3,
+    "CAS5_SMC": 4,
+    "CAS6_RETOURNEMENT": 4,
+    "CAS7_FIBONACCI": 4,
+    "CAS8_SMC_AVANCE": 5,
+}
+
+CAS_LABELS = {
+    "CAS1_TENDANCE": "Tendance",
+    "CAS2_SCALPING": "Scalping",
+    "CAS3_RANGE": "Range",
+    "CAS4_CASSURE": "Cassure",
+    "CAS5_SMC": "SMC",
+    "CAS6_RETOURNEMENT": "Retournement",
+    "CAS7_FIBONACCI": "Fibonacci",
+    "CAS8_SMC_AVANCE": "SMC Avance",
+}
+
 SYMBOLS = ["XAUUSDm", "XAGUSDm", "USOILm"]
 SYMBOL_LABELS = {"XAUUSDm": "Or (XAUUSD)", "XAGUSDm": "Argent (XAGUSD)", "USOILm": "Petrole (USOIL)"}
 
@@ -827,6 +862,137 @@ def generate_signal(closes, opens, highs, lows):
     }
 
 
+def evaluate_all_cas(closes, opens, highs, lows):
+    """Evaluate all 8 CAS simultaneously. Returns (evaluations, best_signal)."""
+    if len(closes) < 200:
+        empty = {}
+        for i, cas in enumerate(CAS_PRIORITY):
+            empty[cas] = {
+                "signal": 0, "direction": "ATTENTE", "reasons": [],
+                "confirmations": 0, "required": CAS_MIN_CONFIRMATIONS[cas],
+                "valid": False, "score": 0, "label": CAS_LABELS[cas],
+                "confidence_rate": CAS_CONFIDENCE[cas], "priority_rank": i + 1,
+            }
+        return empty, _no_signal("Donnees insuffisantes")
+
+    atr = calc_atr(highs, lows, closes)
+    adx = calc_adx(highs, lows, closes)
+    bb_lower, bb_mid, bb_upper = calc_bb(closes)
+    rsi_values = calc_rsi(closes, RSI_PERIOD)
+    stoch_k = calc_stochrsi_k(rsi_values, STOCHRSI_PER) if rsi_values else 0.5
+    macd_main, macd_sig = calc_macd(closes)
+    stoch14_k, stoch14_d = calc_stoch14(highs, lows, closes)
+    ecart_dk = abs(stoch14_d - stoch14_k)
+
+    cas_funcs = {
+        "CAS1_TENDANCE": lambda: _get_cas1(closes, opens, highs, lows, stoch_k, adx, macd_main, macd_sig),
+        "CAS2_SCALPING": lambda: _get_cas2(closes, opens, highs, lows, stoch_k),
+        "CAS3_RANGE": lambda: _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr),
+        "CAS4_CASSURE": lambda: _get_cas4(closes, opens, highs, lows, atr),
+        "CAS5_SMC": lambda: _get_cas5(closes, opens, highs, lows, stoch_k),
+        "CAS6_RETOURNEMENT": lambda: _get_cas6(closes, opens, highs, lows, stoch_k, rsi_values),
+        "CAS7_FIBONACCI": lambda: _get_cas7(closes, opens, highs, lows, stoch_k, atr),
+        "CAS8_SMC_AVANCE": lambda: _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_main, macd_sig),
+    }
+
+    evaluations = {}
+    for rank, cas_name in enumerate(CAS_PRIORITY, 1):
+        sig, reasons = cas_funcs[cas_name]()
+        conf = sum(1 for r in reasons if r.get("ok"))
+        req = CAS_MIN_CONFIRMATIONS[cas_name]
+        evaluations[cas_name] = {
+            "signal": sig,
+            "direction": "BUY" if sig > 0 else "SELL" if sig < 0 else "ATTENTE",
+            "reasons": reasons,
+            "confirmations": conf,
+            "required": req,
+            "valid": conf >= req and sig != 0,
+            "score": CAS_PARAMS[cas_name]["base_score"] if sig != 0 else 0,
+            "label": CAS_LABELS[cas_name],
+            "confidence_rate": CAS_CONFIDENCE[cas_name],
+            "priority_rank": rank,
+        }
+
+    b1_active = stoch_k <= STOCHRSI_OS or stoch_k >= STOCHRSI_OB
+    b1_dir = "BUY" if stoch_k <= STOCHRSI_OS else "SELL"
+    faux_mouvement = False
+    b2_confirmed = True
+
+    for cas_name in ("CAS1_TENDANCE", "CAS2_SCALPING", "CAS3_RANGE", "CAS4_CASSURE"):
+        if evaluations[cas_name]["valid"] and b1_active:
+            fm = detect_faux_mouvement(stoch_k, stoch14_k, stoch14_d, b1_dir)
+            ec = check_ecart_dk(stoch14_k, stoch14_d)
+            if fm or not ec:
+                evaluations[cas_name]["valid"] = False
+                evaluations[cas_name]["reasons"].insert(0, {
+                    "ok": False,
+                    "text": "FAUX MOUVEMENT" if fm else f"Ecart D-K ({ecart_dk:.1f}) < {ECART_DK_MIN}",
+                })
+                if fm:
+                    faux_mouvement = True
+                if not ec:
+                    b2_confirmed = False
+
+    best_cas = None
+    for cas_name in CAS_PRIORITY:
+        if evaluations[cas_name]["valid"]:
+            best_cas = cas_name
+            break
+
+    if best_cas:
+        ev = evaluations[best_cas]
+        params = CAS_PARAMS[best_cas]
+        score = params["base_score"]
+        if best_cas == "CAS1_TENDANCE":
+            score = min(40 + adx, 100)
+        elif best_cas == "CAS8_SMC_AVANCE":
+            smc_b, _, smc_s, _ = calc_smc_confluence(opens, closes, highs, lows, atr)
+            score = min(50 + max(smc_b, smc_s) // 2, 100)
+
+        direction = ev["direction"]
+        branch = ""
+        if best_cas in ("CAS5_SMC", "CAS8_SMC_AVANCE"):
+            branch = detect_branch_cas5(closes, direction)
+
+        exit_signal = (direction == "BUY" and stoch_k > 0.90) or (direction == "SELL" and stoch_k < 0.10)
+        pyramide = calc_pyramide_levels(closes[-1], atr, direction)
+
+        signal = {
+            "cas": best_cas,
+            "direction": direction,
+            "score": round(score),
+            "reasons": ev["reasons"],
+            "sl_pips": round(atr * params["sl_mult"], 2),
+            "tp_pips": round(atr * params["tp_mult"], 2),
+            "atr": round(atr, 4),
+            "adx": round(adx, 1),
+            "stoch_k": round(stoch_k, 3),
+            "stoch14_k": round(stoch14_k, 1),
+            "stoch14_d": round(stoch14_d, 1),
+            "ecart_dk": round(ecart_dk, 1),
+            "faux_mouvement": faux_mouvement,
+            "exit_signal": exit_signal,
+            "branch": branch,
+            "bb_width": round((bb_upper - bb_lower) / bb_mid * 100, 2) if bb_mid > 0 else 0,
+            "macd": round(macd_main, 4),
+            "macd_signal": round(macd_sig, 4),
+            "pipeline": _get_pipeline_state(best_cas, ev["signal"], stoch_k, adx, stoch14_k, stoch14_d, ecart_dk, faux_mouvement, b1_active, b2_confirmed, branch),
+            "pyramide": pyramide,
+        }
+    else:
+        signal = _no_signal("Scan en cours — aucun CAS valide")
+        signal.update({
+            "atr": round(atr, 4), "adx": round(adx, 1),
+            "stoch_k": round(stoch_k, 3),
+            "stoch14_k": round(stoch14_k, 1), "stoch14_d": round(stoch14_d, 1),
+            "ecart_dk": round(ecart_dk, 1), "faux_mouvement": faux_mouvement,
+            "bb_width": round((bb_upper - bb_lower) / bb_mid * 100, 2) if bb_mid > 0 else 0,
+            "macd": round(macd_main, 4), "macd_signal": round(macd_sig, 4),
+        })
+
+    return evaluations, signal
+
+
 def _no_signal(msg):
     return {
         "cas": "—",
@@ -1182,16 +1348,20 @@ def _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_m, macd_s):
 def analyze_symbol(account_id, token, symbol):
     candles = fetch_candles(account_id, token, symbol, "15m", 250)
     if not candles or len(candles) < 50:
-        return _no_signal(f"Pas assez de bougies pour {symbol}")
+        empty_ev = {cas: {"signal": 0, "direction": "ATTENTE", "reasons": [], "confirmations": 0, "required": CAS_MIN_CONFIRMATIONS[cas], "valid": False, "score": 0, "label": CAS_LABELS[cas], "confidence_rate": CAS_CONFIDENCE[cas], "priority_rank": i + 1} for i, cas in enumerate(CAS_PRIORITY)}
+        sig = _no_signal(f"Pas assez de bougies pour {symbol}")
+        sig["cas_evaluations"] = empty_ev
+        return sig
 
     closes = [c["close"] for c in candles]
     opens = [c["open"] for c in candles]
     highs = [c["high"] for c in candles]
     lows = [c["low"] for c in candles]
 
-    signal = generate_signal(closes, opens, highs, lows)
+    evaluations, signal = evaluate_all_cas(closes, opens, highs, lows)
     signal["asset"] = SYMBOL_LABELS.get(symbol, symbol)
     signal["symbol"] = symbol
+    signal["cas_evaluations"] = evaluations
     return signal
 
 
@@ -1199,17 +1369,23 @@ def analyze_all(account_id, token, symbols=None):
     if symbols is None:
         symbols = SYMBOLS
 
+    empty_ev = {cas: {"signal": 0, "direction": "ATTENTE", "reasons": [], "confirmations": 0, "required": CAS_MIN_CONFIRMATIONS[cas], "valid": False, "score": 0, "label": CAS_LABELS[cas], "confidence_rate": CAS_CONFIDENCE[cas], "priority_rank": i + 1} for i, cas in enumerate(CAS_PRIORITY)}
+
     if not is_within_trading_hours():
+        sig = _no_signal("Hors heures de trading (8h-22h GMT)")
+        sig["cas_evaluations"] = empty_ev
         return {
-            "best": _no_signal("Hors heures de trading (8h-22h GMT)"),
+            "best": sig,
             "all_signals": [],
             "trading_hours": False,
             "news_time": False,
         }
 
     if is_news_time():
+        sig = _no_signal("Pause news — buffer de 30 minutes")
+        sig["cas_evaluations"] = empty_ev
         return {
-            "best": _no_signal("Pause news — buffer de 30 minutes"),
+            "best": sig,
             "all_signals": [],
             "trading_hours": True,
             "news_time": True,

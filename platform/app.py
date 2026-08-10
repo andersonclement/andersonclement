@@ -321,6 +321,20 @@ def create_app():
 
         return render_template("risk_settings.html", account=account)
 
+    # ---------- Auto-Trade Toggle ----------
+
+    @app.route("/api/toggle-autotrade", methods=["POST"])
+    @login_required
+    def toggle_autotrade():
+        account = TradingAccount.query.filter_by(user_id=current_user.id).first()
+        if not account:
+            return jsonify({"ok": False, "error": "Compte non configure"}), 404
+        account.auto_trade_enabled = not account.auto_trade_enabled
+        db.session.commit()
+        state = "active" if account.auto_trade_enabled else "desactive"
+        logger.info("User '%s' auto-trade %s", current_user.username, state)
+        return jsonify({"ok": True, "auto_trade": account.auto_trade_enabled})
+
     # ---------- Rapport Trading ----------
 
     @app.route("/rapport")

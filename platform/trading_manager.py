@@ -15,10 +15,10 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 
-from models import TradingAccount, db
+from models import TradingAccount, TradeHistory, db
 from crypto_utils import decrypt
 from risk_manager import get_risk_profile
-from strategy_engine import analyze_all, SYMBOL_LABELS
+from strategy_engine import analyze_all, SYMBOL_LABELS, CAS_PRIORITY
 
 logger = logging.getLogger(__name__)
 
@@ -184,6 +184,43 @@ class TradingManager:
         return data
 
     @classmethod
+    def _execute_order(cls, account, token, symbol, direction, lot, sl_price, tp_price):
+        acct_id = account.metaapi_account_id
+        trade_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/trade"
+        action = "ORDER_TYPE_BUY" if direction == "BUY" else "ORDER_TYPE_SELL"
+        body = {
+            "actionType": action,
+            "symbol": symbol,
+            "volume": round(lot, 2),
+        }
+        if sl_price > 0:
+            body["stopLoss"] = round(sl_price, 5)
+        if tp_price > 0:
+            body["takeProfit"] = round(tp_price, 5)
+
+        resp, status = _api_call("POST", trade_url, token, body)
+        if status in (200, 201):
+            logger.info("Order executed: %s %s %.2f lots on %s", direction, symbol, lot, account.server)
+            return True, resp
+        logger.error("Order failed (%d): %s", status, resp.get("error", ""))
+        return False, resp
+
+    @classmethod
+    def _close_position(cls, account, token, position_id):
+        acct_id = account.metaapi_account_id
+        trade_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/trade"
+        body = {
+            "actionType": "POSITION_CLOSE_ID",
+            "positionId": position_id,
+        }
+        resp, status = _api_call("POST", trade_url, token, body)
+        if status in (200, 201):
+            logger.info("Position %s closed", position_id)
+            return True
+        logger.error("Close position failed (%d): %s", status, resp.get("error", ""))
+        return False
+
+    @classmethod
     def _get_metaapi_data(cls, account, token):
         acct_id = account.metaapi_account_id
         info_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/account-information"
@@ -269,6 +306,7 @@ class TradingManager:
                 log_entries.append({"time": now_str, "type": "WARN", "msg": f"Limite perte journaliere atteinte ({risk['max_daily_loss_pct']}%)"})
 
         indicators = {}
+        cas_evaluations = {}
         if analysis and analysis.get("best"):
             b = analysis["best"]
             indicators = {
@@ -282,6 +320,10 @@ class TradingManager:
                 "macd": b.get("macd", 0),
                 "macd_signal": b.get("macd_signal", 0),
             }
+            cas_evaluations = b.get("cas_evaluations", {})
+
+        if account.auto_trade_enabled and analysis and risk and risk.get("can_trade"):
+            cls._auto_trade_cycle(account, token, analysis, risk, balance, positions, log_entries, now_str)
 
         return {
             "status": "ACTIF",
@@ -306,9 +348,98 @@ class TradingManager:
             "risk": risk,
             "indicators": indicators,
             "pipeline": pipeline,
+            "cas_evaluations": cas_evaluations,
+            "auto_trade": account.auto_trade_enabled,
             "faux_mouvement": analysis.get("best", {}).get("faux_mouvement", False) if analysis else False,
             "exit_signal": analysis.get("best", {}).get("exit_signal", False) if analysis else False,
             "branch": analysis.get("best", {}).get("branch", "") if analysis else "",
             "pyramide": analysis.get("best", {}).get("pyramide", []) if analysis else [],
             "log": log_entries,
         }
+
+    @classmethod
+    def _auto_trade_cycle(cls, account, token, analysis, risk, balance, positions, log_entries, now_str):
+        best = analysis.get("best", {})
+        direction = best.get("direction", "ATTENTE")
+        exit_signal = best.get("exit_signal", False)
+        acct_id = account.metaapi_account_id
+
+        if exit_signal and positions:
+            pos_url = f"{METAAPI_DATA_URL}/users/current/accounts/{acct_id}/positions"
+            pos_resp, _ = _api_call("GET", pos_url, token)
+            if isinstance(pos_resp, list):
+                for p in pos_resp:
+                    pid = p.get("id")
+                    if pid:
+                        closed = cls._close_position(account, token, pid)
+                        if closed:
+                            profit = p.get("unrealizedProfit", p.get("profit", 0))
+                            trade = TradeHistory(
+                                user_id=account.user_id,
+                                symbol=p.get("symbol", "?"),
+                                direction=p.get("type", "BUY").replace("POSITION_TYPE_", ""),
+                                cas=best.get("cas", ""),
+                                lot_size=p.get("volume", 0),
+                                entry_price=p.get("openPrice", 0),
+                                exit_price=p.get("currentPrice", 0),
+                                sl=p.get("stopLoss", 0),
+                                tp=p.get("takeProfit", 0),
+                                profit=profit,
+                                status="CLOSED",
+                                closed_at=datetime.now(timezone.utc),
+                            )
+                            db.session.add(trade)
+                            log_entries.append({"time": now_str, "type": "INFO", "msg": f"Auto-close: {p.get('symbol', '?')} P&L={profit:.2f}"})
+                db.session.commit()
+            return
+
+        if direction not in ("BUY", "SELL"):
+            return
+
+        max_pos = risk.get("max_positions", 3)
+        if len(positions) >= max_pos:
+            log_entries.append({"time": now_str, "type": "WARN", "msg": f"Max positions ({max_pos}) atteint"})
+            return
+
+        symbol = best.get("symbol", "")
+        if not symbol:
+            return
+
+        already_open = any(p.get("asset") == symbol for p in positions)
+        if already_open:
+            return
+
+        lots = risk.get("recommended_lots", {})
+        lot = lots.get("sl_30_pips", 0.01)
+        sl_pips = best.get("sl_pips", 0)
+        tp_pips = best.get("tp_pips", 0)
+        entry = best.get("pyramide", [{}])[0].get("price", 0) if best.get("pyramide") else 0
+
+        if entry <= 0:
+            return
+
+        if direction == "BUY":
+            sl_price = entry - sl_pips
+            tp_price = entry + tp_pips
+        else:
+            sl_price = entry + sl_pips
+            tp_price = entry - tp_pips
+
+        ok, resp = cls._execute_order(account, token, symbol, direction, lot, sl_price, tp_price)
+        if ok:
+            trade = TradeHistory(
+                user_id=account.user_id,
+                symbol=symbol,
+                direction=direction,
+                cas=best.get("cas", ""),
+                lot_size=lot,
+                entry_price=entry,
+                sl=sl_pips,
+                tp=tp_pips,
+                status="OPEN",
+            )
+            db.session.add(trade)
+            db.session.commit()
+            log_entries.append({"time": now_str, "type": direction, "msg": f"Auto-trade: {direction} {symbol} {lot} lots — {best.get('cas', '')}"})
+        else:
+            log_entries.append({"time": now_str, "type": "WARN", "msg": f"Auto-trade echoue: {resp.get('error', 'erreur inconnue')[:60]}"})
