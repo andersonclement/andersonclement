@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from models import TradingAccount, TradeHistory, db
 from crypto_utils import decrypt
 from risk_manager import get_risk_profile
-from strategy_engine import analyze_all, SYMBOL_LABELS, CAS_PRIORITY, is_news_time, TRADE_INTERVAL_MIN
+from strategy_engine import analyze_all, is_news_time, TRADE_INTERVAL_MIN
 
 logger = logging.getLogger(__name__)
 

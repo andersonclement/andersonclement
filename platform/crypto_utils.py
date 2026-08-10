@@ -16,10 +16,9 @@ def _get_fernet():
         if len(env_key) == 44 and env_key.endswith("="):
             key = env_key.encode()
         else:
-            key = Fernet.generate_key()
             raise ValueError(
                 "ENCRYPTION_KEY must be a valid 44-char Fernet key. "
-                f"Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+                "Generate one with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
             )
     elif os.path.exists(_KEY_PATH):
         with open(_KEY_PATH, "rb") as f:

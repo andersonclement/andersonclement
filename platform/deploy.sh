@@ -16,8 +16,9 @@ fi
 source .env
 
 # Validate required vars
-if [ "${SECRET_KEY:-CHANGEZ_MOI}" = "CHANGEZ_MOI_avec_une_cle_aleatoire_de_64_caracteres" ]; then
-    echo "ERREUR: Changez SECRET_KEY dans .env"
+if [ -z "${SECRET_KEY:-}" ] || [ "${SECRET_KEY:-}" = "CHANGEZ_MOI_avec_une_cle_aleatoire_de_64_caracteres" ]; then
+    echo "ERREUR: SECRET_KEY manquant ou non modifie dans .env"
+    echo "Generez une cle: python -c \"import secrets; print(secrets.token_hex(32))\""
     exit 1
 fi
 

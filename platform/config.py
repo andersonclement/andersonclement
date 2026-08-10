@@ -5,7 +5,13 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 ENV = os.environ.get("FLASK_ENV", "production")
 
-SECRET_KEY = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
+_env_secret = os.environ.get("SECRET_KEY", "")
+if ENV == "production" and not _env_secret:
+    raise RuntimeError(
+        "SECRET_KEY must be set in production. "
+        "Generate one: python -c \"import secrets; print(secrets.token_hex(32))\""
+    )
+SECRET_KEY = _env_secret or secrets.token_hex(32)
 SQLALCHEMY_DATABASE_URI = os.environ.get(
     "DATABASE_URL", f"sqlite:///{os.path.join(BASE_DIR, 'data', 'smarttrader.db')}"
 )

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import (
     Flask, render_template, redirect, url_for, request, flash, jsonify, abort,
+    session,
 )
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -94,6 +95,7 @@ def create_app():
                 if not user.is_active_account:
                     flash("Compte desactive. Contactez l'administrateur.", "error")
                     return render_template("login.html")
+                session.permanent = True
                 login_user(user, remember=False)
                 logger.info("User '%s' logged in", username)
                 nxt = request.args.get("next")
@@ -131,22 +133,31 @@ def create_app():
                 flash("Code d'activation invalide ou deja utilise.", "error")
                 return render_template("activation.html")
 
-            username = User.generate_next_id()
-
             now = datetime.now(timezone.utc)
-            user = User(
-                username=username,
-                password_hash=generate_password_hash(password),
-                activation_code_id=code.id,
-            )
-            code.is_used = True
-            code.used_by = username
-            code.used_at = now
-            code.expires_at = now + timedelta(days=code.max_days)
+            pw_hash = generate_password_hash(password)
 
-            db.session.add(user)
-            db.session.commit()
+            for _attempt in range(5):
+                username = User.generate_next_id()
+                user = User(
+                    username=username,
+                    password_hash=pw_hash,
+                    activation_code_id=code.id,
+                )
+                code.is_used = True
+                code.used_by = username
+                code.used_at = now
+                code.expires_at = now + timedelta(days=code.max_days)
+                db.session.add(user)
+                try:
+                    db.session.commit()
+                    break
+                except Exception:
+                    db.session.rollback()
+            else:
+                flash("Erreur lors de la creation du compte. Reessayez.", "error")
+                return render_template("activation.html")
 
+            session.permanent = True
             login_user(user, remember=False)
             logger.info("New user '%s' registered with code %s", username, code_str)
             flash(f"Compte active ! Votre identifiant est : {username}", "success")
@@ -185,6 +196,8 @@ def create_app():
     @login_required
     @limiter.limit("60 per minute")
     def api_trading_data():
+        if not _check_license(current_user):
+            return jsonify({"error": "Licence expiree", "status": "EXPIRED"}), 403
         data = TradingManager.get_trading_data(current_user.id)
         resp = jsonify(data)
         resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
@@ -275,6 +288,8 @@ def create_app():
     @login_required
     @limiter.limit("60 per minute")
     def api_risk_profile():
+        if not _check_license(current_user):
+            return jsonify({"error": "Licence expiree"}), 403
         data = TradingManager.get_trading_data(current_user.id)
         balance = data.get("balance", 0)
         profile = get_risk_profile(current_user.id, balance)
@@ -477,6 +492,9 @@ def create_app():
 
 
 app = create_app()
+
+from scheduler import start_scheduler
+start_scheduler(app)
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
