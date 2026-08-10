@@ -38,6 +38,10 @@ LZ_LOOKBACK = 50
 SH_LOOKBACK = 20
 SH_WICK_RATIO = 0.7
 
+STOCH14_PERIOD = 14
+STOCH14_D_PERIOD = 3
+ECART_DK_MIN = 10.0
+
 CAS_PARAMS = {
     "CAS1_TENDANCE":     {"sl_mult": 1.5, "tp_mult": 2.5, "base_score": 60},
     "CAS2_SCALPING":     {"sl_mult": 0.8, "tp_mult": 1.2, "base_score": 55},
@@ -146,6 +150,26 @@ def calc_stochrsi_k(rsi_values, period=14):
     if hi == lo:
         return 0.5
     return (recent[-1] - lo) / (hi - lo)
+
+
+def calc_stoch14(highs, lows, closes, k_period=14, d_period=3):
+    """Classic Stochastic Oscillator %K and %D (period 14)."""
+    if len(closes) < k_period:
+        return 50.0, 50.0
+    k_values = []
+    for i in range(k_period - 1, len(closes)):
+        period_highs = highs[i - k_period + 1:i + 1]
+        period_lows = lows[i - k_period + 1:i + 1]
+        hh = max(period_highs)
+        ll = min(period_lows)
+        if hh == ll:
+            k_values.append(50.0)
+        else:
+            k_values.append((closes[i] - ll) / (hh - ll) * 100)
+    if len(k_values) < d_period:
+        return k_values[-1] if k_values else 50.0, 50.0
+    d_value = sum(k_values[-d_period:]) / d_period
+    return k_values[-1], d_value
 
 
 def calc_atr(highs, lows, closes, period=14):
@@ -411,6 +435,62 @@ def is_news_time():
     return False
 
 
+# ── Faux Mouvement & Pipeline helpers ───────────────────────────
+
+def detect_faux_mouvement(stochrsi_k, stoch14_k, stoch14_d, direction):
+    """FAUX MOUVEMENT: StochRSI in zone but Stoch14 K doesn't confirm."""
+    if direction == "BUY":
+        return stochrsi_k <= STOCHRSI_OS and stoch14_k <= stoch14_d
+    if direction == "SELL":
+        return stochrsi_k >= STOCHRSI_OB and stoch14_k >= stoch14_d
+    return False
+
+
+def check_ecart_dk(stoch14_k, stoch14_d):
+    """B2 validation: gap |D - K| must be >= ECART_DK_MIN."""
+    return abs(stoch14_d - stoch14_k) >= ECART_DK_MIN
+
+
+def detect_cas_by_adx(adx):
+    """CAS number from ADX thresholds (CAS 1-4 pipeline)."""
+    if adx > 24:
+        return 1
+    if adx > 20:
+        return 2
+    if adx > 10:
+        return 3
+    return 4
+
+
+def detect_branch_cas5(closes, direction):
+    """Branch A (MA alignee) / B (MA non alignee) for CAS 5."""
+    if len(closes) < 50:
+        return "B"
+    ema9 = calc_ema(closes, 9)
+    ema21 = calc_ema(closes, 21)
+    ema50 = calc_ema(closes, 50)
+    if not ema9 or not ema21 or not ema50:
+        return "B"
+    e9, e21, e50 = ema9[-1], ema21[-1], ema50[-1]
+    if direction == "BUY" and e9 > e21 > e50:
+        return "A"
+    if direction == "SELL" and e9 < e21 < e50:
+        return "A"
+    return "B"
+
+
+def calc_pyramide_levels(entry_price, atr, direction, num_levels=5):
+    """Pyramide P1-P5 entry levels with decreasing lot percentages."""
+    step = atr * 0.5
+    pcts = [1.0, 0.5, 0.3, 0.2, 0.1]
+    levels = []
+    for i in range(num_levels):
+        offset = step * (i + 1)
+        price = entry_price + offset if direction == "BUY" else entry_price - offset
+        levels.append({"level": f"P{i + 1}", "price": round(price, 5), "lot_pct": pcts[i]})
+    return levels
+
+
 # ── Regime detection ─────────────────────────────────────────────
 
 def detect_regime(closes, highs, lows, opens, atr, adx, bb_lower, bb_mid, bb_upper):
@@ -469,14 +549,39 @@ def generate_signal(closes, opens, highs, lows):
     rsi_values = calc_rsi(closes, RSI_PERIOD)
     stoch_k = calc_stochrsi_k(rsi_values, STOCHRSI_PER) if rsi_values else 0.5
     macd_main, macd_sig = calc_macd(closes)
+    stoch14_k, stoch14_d = calc_stoch14(highs, lows, closes)
 
     regime = detect_regime(closes, highs, lows, opens, atr, adx, bb_lower, bb_mid, bb_upper)
     params = CAS_PARAMS[regime]
 
+    is_cas14 = regime in ("CAS1_TENDANCE", "CAS2_SCALPING", "CAS3_RANGE", "CAS4_CASSURE")
+
+    b1_buy = stoch_k <= STOCHRSI_OS
+    b1_sell = stoch_k >= STOCHRSI_OB
+    b1_active = b1_buy or b1_sell
+    b1_direction = "BUY" if b1_buy else "SELL" if b1_sell else "ATTENTE"
+
+    faux_mouvement = False
+    if is_cas14 and b1_active:
+        faux_mouvement = detect_faux_mouvement(stoch_k, stoch14_k, stoch14_d, b1_direction)
+
+    ecart_dk = abs(stoch14_d - stoch14_k)
+    b2_confirmed = False
+    if is_cas14 and b1_active and not faux_mouvement:
+        b2_confirmed = check_ecart_dk(stoch14_k, stoch14_d)
+
+    cas_adx_num = detect_cas_by_adx(adx) if is_cas14 else 0
+
     sig = 0
     reasons = []
 
-    if regime == "CAS1_TENDANCE":
+    if faux_mouvement:
+        reasons = [
+            {"ok": False, "text": f"FAUX MOUVEMENT — Stoch14 K({stoch14_k:.1f}) {'<=' if b1_direction == 'BUY' else '>='} D({stoch14_d:.1f})"},
+            {"ok": True, "text": f"StochRSI en zone ({stoch_k:.3f}) mais Stoch14 ne confirme pas"},
+            {"ok": False, "text": "B1 abandonne — scan relance"},
+        ]
+    elif regime == "CAS1_TENDANCE":
         sig, reasons = _get_cas1(closes, opens, highs, lows, stoch_k, adx, macd_main, macd_sig)
     elif regime == "CAS2_SCALPING":
         sig, reasons = _get_cas2(closes, opens, highs, lows, stoch_k)
@@ -491,6 +596,10 @@ def generate_signal(closes, opens, highs, lows):
     elif regime == "CAS7_FIBONACCI":
         sig, reasons = _get_cas7(closes, opens, highs, lows, stoch_k, atr)
 
+    if is_cas14 and not b2_confirmed and sig != 0:
+        reasons.insert(0, {"ok": False, "text": f"Ecart D-K ({ecart_dk:.1f}) < {ECART_DK_MIN} — B2 non confirme"})
+        sig = 0
+
     score = params["base_score"]
     if regime == "CAS1_TENDANCE" and sig != 0:
         score = min(40 + adx, 100)
@@ -498,6 +607,20 @@ def generate_signal(closes, opens, highs, lows):
     direction = "BUY" if sig > 0 else "SELL" if sig < 0 else "ATTENTE"
     sl_pips = atr * params["sl_mult"]
     tp_pips = atr * params["tp_mult"]
+
+    exit_signal = False
+    if direction == "BUY" and stoch_k > 0.90:
+        exit_signal = True
+    elif direction == "SELL" and stoch_k < 0.10:
+        exit_signal = True
+
+    branch = ""
+    if regime == "CAS5_SMC" and sig != 0:
+        branch = detect_branch_cas5(closes, direction)
+
+    pyramide = []
+    if sig != 0:
+        pyramide = calc_pyramide_levels(closes[-1], atr, direction)
 
     return {
         "cas": regime,
@@ -509,10 +632,17 @@ def generate_signal(closes, opens, highs, lows):
         "atr": round(atr, 4),
         "adx": round(adx, 1),
         "stoch_k": round(stoch_k, 3),
+        "stoch14_k": round(stoch14_k, 1),
+        "stoch14_d": round(stoch14_d, 1),
+        "ecart_dk": round(ecart_dk, 1),
+        "faux_mouvement": faux_mouvement,
+        "exit_signal": exit_signal,
+        "branch": branch,
         "bb_width": round((bb_upper - bb_lower) / bb_mid * 100, 2) if bb_mid > 0 else 0,
         "macd": round(macd_main, 4),
         "macd_signal": round(macd_sig, 4),
-        "pipeline": _get_pipeline_state(regime, sig, stoch_k, adx, reasons),
+        "pipeline": _get_pipeline_state(regime, sig, stoch_k, adx, stoch14_k, stoch14_d, ecart_dk, faux_mouvement, b1_active, b2_confirmed, branch),
+        "pyramide": pyramide,
     }
 
 
@@ -527,30 +657,96 @@ def _no_signal(msg):
         "atr": 0,
         "adx": 0,
         "stoch_k": 0.5,
+        "stoch14_k": 50.0,
+        "stoch14_d": 50.0,
+        "ecart_dk": 0,
+        "faux_mouvement": False,
+        "exit_signal": False,
+        "branch": "",
         "bb_width": 0,
         "macd": 0,
         "macd_signal": 0,
         "pipeline": {},
+        "pyramide": [],
     }
 
 
-def _get_pipeline_state(regime, sig, stoch_k, adx, reasons):
-    if regime in ("CAS1_TENDANCE", "CAS2_SCALPING", "CAS3_RANGE", "CAS4_CASSURE"):
-        cas_num = int(regime.split("_")[0][-1]) if regime[3].isdigit() else 0
+def _get_pipeline_state(regime, sig, stoch_k, adx, stoch14_k=50, stoch14_d=50, ecart_dk=0, faux_mouvement=False, b1_active=False, b2_confirmed=False, branch=""):
+    is_cas14 = regime in ("CAS1_TENDANCE", "CAS2_SCALPING", "CAS3_RANGE", "CAS4_CASSURE")
+    cas_num = int(regime.split("_")[0][-1]) if regime[3:4].isdigit() else 0
+
+    if is_cas14:
         return {
-            "b1": {"active": stoch_k > STOCHRSI_OB or stoch_k < STOCHRSI_OS, "label": "B1", "detail": f"StochRSI {stoch_k:.2f}"},
-            "b2": {"active": sig != 0, "label": "B2", "detail": "Cassure confirmee" if sig != 0 else "Attente cassure"},
-            "cas": {"active": sig != 0, "label": f"CAS{cas_num}", "detail": f"ADX {adx:.1f}"},
-            "entry": {"active": sig != 0, "label": "Entree", "detail": "BUY" if sig > 0 else "SELL" if sig < 0 else "—"},
-            "exit": {"active": False, "label": "Sortie", "detail": "StochRSI < 0.10"},
+            "type": "CAS_1_4",
+            "b1": {
+                "active": b1_active and not faux_mouvement,
+                "faux": faux_mouvement,
+                "label": "B1",
+                "detail": f"StochRSI {stoch_k:.3f}",
+                "stoch14_k": round(stoch14_k, 1),
+                "stoch14_d": round(stoch14_d, 1),
+            },
+            "b2": {
+                "active": b2_confirmed,
+                "label": "B2",
+                "detail": f"Ecart D-K: {ecart_dk:.1f}",
+                "ecart_ok": ecart_dk >= ECART_DK_MIN,
+            },
+            "cas": {
+                "active": sig != 0,
+                "label": f"CAS{cas_num}",
+                "detail": f"ADX {adx:.1f}",
+            },
+            "b3": {
+                "active": sig != 0,
+                "label": "B3",
+                "detail": "Confirme" if sig != 0 else "Attente",
+            },
+            "pyramide": {
+                "active": sig != 0,
+                "label": "P+",
+                "detail": "Pyramide" if sig != 0 else "—",
+            },
+            "exit": {
+                "active": stoch_k < 0.10 or stoch_k > 0.90,
+                "label": "OUT",
+                "detail": "K<0.10 fermer" if stoch_k < 0.10 else "K>0.90 fermer" if stoch_k > 0.90 else "Actif",
+            },
         }
-    else:
-        return {
-            "b1": {"active": True, "label": "Scan", "detail": regime},
-            "b2": {"active": sig != 0, "label": "Signal", "detail": "Detecte" if sig != 0 else "Scan..."},
-            "entry": {"active": sig != 0, "label": "Entree", "detail": "BUY" if sig > 0 else "SELL" if sig < 0 else "—"},
-            "exit": {"active": False, "label": "Sortie", "detail": "Conditions de sortie"},
-        }
+
+    return {
+        "type": "CAS_5",
+        "b1": {
+            "active": True,
+            "label": "B1",
+            "detail": regime.replace("_", " "),
+        },
+        "b2": {
+            "active": sig != 0,
+            "label": "B2",
+            "detail": f"StochRSI {stoch_k:.3f}",
+        },
+        "branch": {
+            "active": sig != 0 and bool(branch),
+            "label": f"BR-{branch}" if branch else "BR",
+            "detail": "MA alignee" if branch == "A" else "MA non alignee" if branch == "B" else "—",
+        },
+        "confirm": {
+            "active": sig != 0,
+            "label": "1s",
+            "detail": "Confirme" if sig != 0 else "Attente",
+        },
+        "entry": {
+            "active": sig != 0,
+            "label": "P1",
+            "detail": "BUY" if sig > 0 else "SELL" if sig < 0 else "—",
+        },
+        "exit": {
+            "active": False,
+            "label": "OUT",
+            "detail": "Conditions sortie",
+        },
+    }
 
 
 # ── CAS signal functions ────────────────────────────────────────

@@ -273,6 +273,9 @@ class TradingManager:
             b = analysis["best"]
             indicators = {
                 "stochRSI_K": b.get("stoch_k", 0),
+                "stoch14_K": b.get("stoch14_k", 50),
+                "stoch14_D": b.get("stoch14_d", 50),
+                "ecart_dk": b.get("ecart_dk", 0),
                 "adx": b.get("adx", 0),
                 "atr": b.get("atr", 0),
                 "bb_width": b.get("bb_width", 0),
@@ -303,5 +306,9 @@ class TradingManager:
             "risk": risk,
             "indicators": indicators,
             "pipeline": pipeline,
+            "faux_mouvement": analysis.get("best", {}).get("faux_mouvement", False) if analysis else False,
+            "exit_signal": analysis.get("best", {}).get("exit_signal", False) if analysis else False,
+            "branch": analysis.get("best", {}).get("branch", "") if analysis else "",
+            "pyramide": analysis.get("best", {}).get("pyramide", []) if analysis else [],
             "log": log_entries,
         }

@@ -17,7 +17,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from models import db, User, ActivationCode, TradingAccount
+from models import db, User, ActivationCode, TradingAccount, TradeHistory
 from crypto_utils import encrypt, decrypt
 from trading_manager import TradingManager
 from risk_manager import get_risk_profile, update_risk_settings
@@ -320,6 +320,68 @@ def create_app():
             return redirect(url_for("dashboard"))
 
         return render_template("risk_settings.html", account=account)
+
+    # ---------- Rapport Trading ----------
+
+    @app.route("/rapport")
+    @login_required
+    def rapport():
+        return render_template("rapport.html")
+
+    @app.route("/api/trade-history")
+    @login_required
+    @limiter.limit("60 per minute")
+    def api_trade_history():
+        direction = request.args.get("direction", "")
+        period = request.args.get("period", "all")
+
+        query = TradeHistory.query.filter_by(user_id=current_user.id)
+        if direction in ("BUY", "SELL"):
+            query = query.filter_by(direction=direction)
+
+        now = datetime.now(timezone.utc)
+        if period == "day":
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(TradeHistory.opened_at >= start)
+        elif period == "month":
+            start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(TradeHistory.opened_at >= start)
+        elif period == "year":
+            start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+            query = query.filter(TradeHistory.opened_at >= start)
+
+        trades = query.order_by(TradeHistory.opened_at.desc()).limit(200).all()
+
+        total = len(trades)
+        wins = sum(1 for t in trades if t.profit > 0)
+        total_pl = sum(t.profit for t in trades)
+
+        return jsonify({
+            "trades": [
+                {
+                    "id": t.id,
+                    "symbol": t.symbol,
+                    "direction": t.direction,
+                    "cas": t.cas or "—",
+                    "lot": t.lot_size,
+                    "entry": t.entry_price,
+                    "exit": t.exit_price or 0,
+                    "sl": t.sl,
+                    "tp": t.tp,
+                    "profit": t.profit,
+                    "status": t.status,
+                    "date": t.opened_at.strftime("%d/%m/%Y %H:%M") if t.opened_at else "—",
+                }
+                for t in trades
+            ],
+            "summary": {
+                "total": total,
+                "wins": wins,
+                "losses": total - wins,
+                "win_rate": round(wins / total * 100, 1) if total > 0 else 0,
+                "total_pl": round(total_pl, 2),
+            },
+        })
 
     # ---------- Admin ----------
 

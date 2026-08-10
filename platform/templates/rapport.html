@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Rapport Trading - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="container">
+  <h1 style="font-size:1.5rem; margin-bottom:1.5rem">Rapport Trading</h1>
+
+  <!-- Filters -->
+  <div class="card" style="margin-bottom:1.5rem">
+    <div class="flex flex-between flex-center" style="flex-wrap:wrap; gap:0.75rem">
+      <div class="flex gap-1">
+        <button class="btn btn-sm filter-btn active" data-dir="" onclick="setDir(this)">Tout</button>
+        <button class="btn btn-sm btn-green filter-btn" data-dir="BUY" onclick="setDir(this)">Buy</button>
+        <button class="btn btn-sm btn-red filter-btn" data-dir="SELL" onclick="setDir(this)">Sell</button>
+      </div>
+      <div class="flex gap-1">
+        <button class="btn btn-sm period-btn active" data-period="all" onclick="setPeriod(this)">Tout</button>
+        <button class="btn btn-sm period-btn" data-period="day" onclick="setPeriod(this)">Jour</button>
+        <button class="btn btn-sm period-btn" data-period="month" onclick="setPeriod(this)">Mois</button>
+        <button class="btn btn-sm period-btn" data-period="year" onclick="setPeriod(this)">Annee</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Summary -->
+  <div class="dash-grid" style="margin-bottom:1.5rem">
+    <div class="stat-card">
+      <span class="stat-label">Total Trades</span>
+      <span class="stat-value" id="r-total">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Win Rate</span>
+      <span class="stat-value" id="r-winrate">0%</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Gains</span>
+      <span class="stat-value stat-green" id="r-wins">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">Pertes</span>
+      <span class="stat-value stat-red" id="r-losses">0</span>
+    </div>
+    <div class="stat-card">
+      <span class="stat-label">P&amp;L Total</span>
+      <span class="stat-value" id="r-pl">$0.00</span>
+    </div>
+  </div>
+
+  <!-- Trade table -->
+  <div class="card">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Symbole</th>
+            <th>CAS</th>
+            <th>Dir</th>
+            <th>Lot</th>
+            <th>Entree</th>
+            <th>Sortie</th>
+            <th>SL</th>
+            <th>TP</th>
+            <th>P&amp;L</th>
+            <th>Statut</th>
+          </tr>
+        </thead>
+        <tbody id="r-tbody">
+          <tr><td colspan="11" style="text-align:center; color:var(--text2)">Chargement...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<style>
+.filter-btn, .period-btn {
+  background:var(--bg3); border:1px solid var(--border); color:var(--text);
+  cursor:pointer; transition:all 0.2s;
+}
+.filter-btn.active, .period-btn.active {
+  background:var(--primary); border-color:var(--primary); color:#fff;
+}
+.filter-btn:hover, .period-btn:hover { opacity:0.85; }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+var curDir = '';
+var curPeriod = 'all';
+
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function setDir(el) {
+  curDir = el.getAttribute('data-dir');
+  document.querySelectorAll('.filter-btn').forEach(function(b) { b.classList.remove('active'); });
+  el.classList.add('active');
+  loadHistory();
+}
+
+function setPeriod(el) {
+  curPeriod = el.getAttribute('data-period');
+  document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
+  el.classList.add('active');
+  loadHistory();
+}
+
+function loadHistory() {
+  var url = '/api/trade-history?period=' + curPeriod;
+  if (curDir) url += '&direction=' + curDir;
+
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var s = d.summary || {};
+      document.getElementById('r-total').textContent = s.total || 0;
+      document.getElementById('r-winrate').textContent = (s.win_rate || 0) + '%';
+      document.getElementById('r-wins').textContent = s.wins || 0;
+      document.getElementById('r-losses').textContent = s.losses || 0;
+      var plEl = document.getElementById('r-pl');
+      plEl.textContent = '$' + (s.total_pl || 0).toFixed(2);
+      plEl.className = 'stat-value ' + ((s.total_pl || 0) >= 0 ? 'stat-green' : 'stat-red');
+
+      var trades = d.trades || [];
+      var tb = document.getElementById('r-tbody');
+      if (trades.length === 0) {
+        tb.innerHTML = '<tr><td colspan="11" style="text-align:center;color:var(--text2)">Aucun trade</td></tr>';
+        return;
+      }
+      var h = '';
+      trades.forEach(function(t) {
+        var plc = (t.profit || 0) >= 0 ? 'stat-green' : 'stat-red';
+        var dc = t.direction === 'BUY' ? 'stat-green' : 'stat-red';
+        h += '<tr>' +
+          '<td>' + esc(t.date) + '</td>' +
+          '<td>' + esc(t.symbol) + '</td>' +
+          '<td>' + esc(t.cas) + '</td>' +
+          '<td class="' + dc + '">' + esc(t.direction) + '</td>' +
+          '<td>' + (t.lot || 0).toFixed(2) + '</td>' +
+          '<td>' + (t.entry || 0).toFixed(2) + '</td>' +
+          '<td>' + (t.exit || 0).toFixed(2) + '</td>' +
+          '<td>' + (t.sl || 0).toFixed(1) + '</td>' +
+          '<td>' + (t.tp || 0).toFixed(1) + '</td>' +
+          '<td class="' + plc + '">' + ((t.profit || 0) >= 0 ? '+' : '') + (t.profit || 0).toFixed(2) + '</td>' +
+          '<td>' + esc(t.status) + '</td>' +
+          '</tr>';
+      });
+      tb.innerHTML = h;
+    })
+    .catch(function() {
+      document.getElementById('r-tbody').innerHTML =
+        '<tr><td colspan="11" style="text-align:center;color:var(--text2)">Erreur de chargement</td></tr>';
+    });
+}
+
+loadHistory();
+</script>
+{% endblock %}

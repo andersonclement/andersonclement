@@ -27,6 +27,14 @@
     </div>
   </div>
 
+  <!-- Alert banners -->
+  <div id="d-faux-banner" class="alert-banner alert-faux" style="display:none">
+    FAUX MOUVEMENT DETECTE — Stoch14 ne confirme pas. B1 abandonne, scan relance.
+  </div>
+  <div id="d-exit-banner" class="alert-banner alert-exit" style="display:none">
+    SIGNAL SORTIE — StochRSI en zone extreme. Fermer toutes les positions.
+  </div>
+
   <!-- Stats row -->
   <div class="dash-grid" id="statsGrid">
     <div class="stat-card">
@@ -61,16 +69,61 @@
       <h2 style="margin:0">Pipeline CAS</h2>
       <span class="status-badge" id="d-cas-badge" style="font-size:0.85rem">--</span>
     </div>
-    <div id="d-pipeline" style="display:flex; gap:0.5rem; margin-top:1rem; flex-wrap:wrap; align-items:center">
-      <div class="pip-step" id="pip-b1"><span class="pip-code">B1</span><span class="pip-label">Scan</span></div>
-      <span class="pip-arrow">&rarr;</span>
-      <div class="pip-step" id="pip-b2"><span class="pip-code">B2</span><span class="pip-label">Cassure</span></div>
-      <span class="pip-arrow">&rarr;</span>
-      <div class="pip-step" id="pip-cas"><span class="pip-code">CAS</span><span class="pip-label">Detection</span></div>
-      <span class="pip-arrow">&rarr;</span>
-      <div class="pip-step" id="pip-entry"><span class="pip-code">ENT</span><span class="pip-label">Entree</span></div>
-      <span class="pip-arrow">&rarr;</span>
-      <div class="pip-step" id="pip-exit"><span class="pip-code">OUT</span><span class="pip-label">Sortie</span></div>
+
+    <!-- CAS 1-4 Pipeline: B1 → B2 → CAS → B3 → P+ → OUT -->
+    <div id="d-pipeline-14" style="margin-top:1rem">
+      <div class="pip-header">Stoch14 Confirme (CAS 1-4)</div>
+      <div class="pip-row">
+        <div class="pip-step" id="pip14-b1"><span class="pip-code">B1</span><span class="pip-label">Scan</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip14-b2"><span class="pip-code">B2</span><span class="pip-label">Cassure</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip14-cas"><span class="pip-code">CAS</span><span class="pip-label">Detection</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip14-b3"><span class="pip-code">B3</span><span class="pip-label">Confirm</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip14-pyr"><span class="pip-code">P+</span><span class="pip-label">Pyramide</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip14-out"><span class="pip-code">OUT</span><span class="pip-label">Sortie</span></div>
+      </div>
+    </div>
+
+    <!-- CAS 5+ Pipeline: B1 → B2 → BR → 1s → P1 → OUT -->
+    <div id="d-pipeline-5" style="margin-top:0.75rem">
+      <div class="pip-header">Sans Stoch14 (CAS 5+)</div>
+      <div class="pip-row">
+        <div class="pip-step" id="pip5-b1"><span class="pip-code">B1</span><span class="pip-label">Scan</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip5-b2"><span class="pip-code">B2</span><span class="pip-label">Signal</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip5-br"><span class="pip-code">BR</span><span class="pip-label">Branche</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip5-1s"><span class="pip-code">1s</span><span class="pip-label">Confirm</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip5-p1"><span class="pip-code">P1</span><span class="pip-label">Entree</span></div>
+        <span class="pip-arrow">&rarr;</span>
+        <div class="pip-step" id="pip5-out"><span class="pip-code">OUT</span><span class="pip-label">Sortie</span></div>
+      </div>
+    </div>
+
+    <!-- B1/B2 Confirmation Grid -->
+    <div class="b12-grid" style="margin-top:1rem">
+      <div class="b12-cell">
+        <span class="b12-title">Stoch14 K</span>
+        <span class="b12-val" id="d-s14k">--</span>
+      </div>
+      <div class="b12-cell">
+        <span class="b12-title">Stoch14 D</span>
+        <span class="b12-val" id="d-s14d">--</span>
+      </div>
+      <div class="b12-cell">
+        <span class="b12-title">Ecart D-K</span>
+        <span class="b12-val" id="d-ecart">--</span>
+      </div>
+      <div class="b12-cell">
+        <span class="b12-title">StochRSI K</span>
+        <span class="b12-val" id="d-srsi-k">--</span>
+      </div>
     </div>
   </div>
 
@@ -86,9 +139,19 @@
           <div class="ind-bar"><div class="ind-fill" id="d-ind-stoch-bar" style="width:50%"></div></div>
         </div>
         <div class="ind-item">
+          <span class="ind-label">Stoch14 K</span>
+          <span class="ind-value" id="d-ind-s14k">--</span>
+          <div class="ind-bar"><div class="ind-fill" id="d-ind-s14k-bar" style="width:50%"></div></div>
+        </div>
+        <div class="ind-item">
           <span class="ind-label">ADX</span>
           <span class="ind-value" id="d-ind-adx">--</span>
           <div class="ind-bar"><div class="ind-fill" id="d-ind-adx-bar" style="width:0%"></div></div>
+        </div>
+        <div class="ind-item">
+          <span class="ind-label">Ecart D-K</span>
+          <span class="ind-value" id="d-ind-ecart">--</span>
+          <div class="ind-bar"><div class="ind-fill" id="d-ind-ecart-bar" style="width:0%"></div></div>
         </div>
         <div class="ind-item">
           <span class="ind-label">ATR</span>
@@ -120,6 +183,12 @@
         <div style="font-size:1.5rem; font-weight:700" id="d-sig-score">--</div>
       </div>
       <div id="d-sig-reasons" style="margin-top:1rem; font-size:0.85rem"></div>
+
+      <!-- Pyramide levels -->
+      <div id="d-pyramide" style="margin-top:1rem; display:none">
+        <div style="font-size:0.75rem; text-transform:uppercase; color:var(--text2); letter-spacing:0.05em; margin-bottom:0.5rem">Pyramide</div>
+        <div id="d-pyr-levels" style="display:flex; gap:0.4rem; flex-wrap:wrap"></div>
+      </div>
     </div>
   </div>
 
@@ -161,9 +230,9 @@
       <h2>Positions Ouvertes (<span id="d-poscount">0</span>)</h2>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Asset</th><th>Dir</th><th>Lot</th><th>P&amp;L</th></tr></thead>
+          <thead><tr><th>Asset</th><th>Dir</th><th>Lot</th><th>SL</th><th>TP</th><th>P&amp;L</th></tr></thead>
           <tbody id="d-positions">
-            <tr><td colspan="4" style="color:var(--text2); text-align:center">Aucune position</td></tr>
+            <tr><td colspan="6" style="color:var(--text2); text-align:center">Aucune position</td></tr>
           </tbody>
         </table>
       </div>
@@ -178,31 +247,66 @@
 </div>
 
 <style>
+.alert-banner {
+  padding:0.75rem 1rem; border-radius:8px; font-size:0.85rem; font-weight:600;
+  margin-bottom:1rem; text-align:center;
+}
+.alert-faux { background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; }
+.alert-exit { background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#ef4444; }
+
+.pip-header {
+  font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em;
+  color:var(--text2); margin-bottom:0.4rem; font-weight:600;
+}
+.pip-row {
+  display:flex; gap:0.4rem; flex-wrap:wrap; align-items:center;
+}
 .pip-step {
   display:flex; flex-direction:column; align-items:center;
   background:var(--bg3); border:1px solid var(--border);
-  border-radius:8px; padding:0.5rem 0.75rem; min-width:60px;
+  border-radius:8px; padding:0.4rem 0.6rem; min-width:52px;
   transition: all 0.3s;
 }
-.pip-step.active {
-  border-color:var(--green); background:rgba(16,185,129,0.1);
-}
+.pip-step.active { border-color:var(--green); background:rgba(16,185,129,0.1); }
 .pip-step.signal-buy { border-color:var(--green); background:rgba(16,185,129,0.15); }
 .pip-step.signal-sell { border-color:var(--red); background:rgba(239,68,68,0.15); }
+.pip-step.faux { border-color:#f59e0b; background:rgba(245,158,11,0.12); }
 .pip-code {
-  font-size:0.7rem; font-weight:700; letter-spacing:0.05em;
+  font-size:0.65rem; font-weight:700; letter-spacing:0.05em;
   text-transform:uppercase; color:var(--text2);
 }
 .pip-step.active .pip-code,
 .pip-step.signal-buy .pip-code { color:var(--green); }
 .pip-step.signal-sell .pip-code { color:var(--red); }
-.pip-label { font-size:0.7rem; color:var(--text2); margin-top:0.15rem; }
-.pip-arrow { color:var(--text2); font-size:1.1rem; }
+.pip-step.faux .pip-code { color:#f59e0b; }
+.pip-label { font-size:0.65rem; color:var(--text2); margin-top:0.1rem; }
+.pip-arrow { color:var(--text2); font-size:1rem; }
+
+.b12-grid {
+  display:grid; grid-template-columns:repeat(4, 1fr); gap:0.5rem;
+  padding:0.75rem; background:var(--bg3); border-radius:8px;
+}
+.b12-cell { display:flex; flex-direction:column; align-items:center; gap:0.15rem; }
+.b12-title { font-size:0.65rem; text-transform:uppercase; color:var(--text2); letter-spacing:0.03em; }
+.b12-val { font-size:1rem; font-weight:700; }
+
 .ind-item { display:flex; flex-direction:column; gap:0.15rem; }
 .ind-label { font-size:0.7rem; color:var(--text2); text-transform:uppercase; letter-spacing:0.03em; }
 .ind-value { font-size:0.95rem; font-weight:600; }
 .ind-bar { height:4px; background:var(--bg3); border-radius:2px; margin-top:0.2rem; overflow:hidden; }
 .ind-fill { height:100%; border-radius:2px; background:var(--gold); transition:width 0.5s; }
+
+.pyr-chip {
+  display:inline-flex; flex-direction:column; align-items:center;
+  padding:0.25rem 0.5rem; border-radius:6px; font-size:0.7rem;
+  background:var(--bg3); border:1px solid var(--border);
+}
+.pyr-chip .pyr-lbl { font-weight:700; font-size:0.65rem; color:var(--text2); }
+.pyr-chip .pyr-val { font-weight:600; }
+
+@media(max-width:768px) {
+  .b12-grid { grid-template-columns:repeat(2,1fr); }
+}
 </style>
 {% endblock %}
 
@@ -211,27 +315,75 @@
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function fmt(n) { return typeof n === 'number' ? '$' + n.toFixed(2) : '--'; }
 
-function renderPipeline(pipeline, cas) {
-  var steps = ['b1','b2','cas','entry','exit'];
-  var ids = ['pip-b1','pip-b2','pip-cas','pip-entry','pip-exit'];
-  for (var i = 0; i < ids.length; i++) {
-    var el = document.getElementById(ids[i]);
-    if (!el) continue;
-    el.className = 'pip-step';
-    var lbl = el.querySelector('.pip-label');
-    var code = el.querySelector('.pip-code');
-    if (pipeline && pipeline[steps[i]]) {
-      var s = pipeline[steps[i]];
-      if (s.active) el.classList.add('active');
-      if (lbl) lbl.textContent = s.detail || s.label || '';
-      if (code) code.textContent = s.label || steps[i].toUpperCase();
-    }
-  }
+function renderPipeline(pipeline, cas, sig_dir) {
   var badge = document.getElementById('d-cas-badge');
   if (badge) {
     badge.textContent = cas || '--';
     badge.className = 'status-badge ' + (cas && cas !== '—' ? 'status-running' : 'status-configured');
   }
+
+  if (!pipeline || !pipeline.type) return;
+
+  var is14 = pipeline.type === 'CAS_1_4';
+  document.getElementById('d-pipeline-14').style.opacity = is14 ? '1' : '0.35';
+  document.getElementById('d-pipeline-5').style.opacity = is14 ? '0.35' : '1';
+
+  if (is14) {
+    setPip('pip14-b1', pipeline.b1, sig_dir);
+    setPip('pip14-b2', pipeline.b2, sig_dir);
+    setPip('pip14-cas', pipeline.cas, sig_dir);
+    setPip('pip14-b3', pipeline.b3, sig_dir);
+    setPip('pip14-pyr', pipeline.pyramide, sig_dir);
+    setPip('pip14-out', pipeline.exit, sig_dir);
+
+    if (pipeline.b1 && pipeline.b1.faux) {
+      var el = document.getElementById('pip14-b1');
+      if (el) { el.className = 'pip-step faux'; }
+    }
+  } else {
+    setPip('pip5-b1', pipeline.b1, sig_dir);
+    setPip('pip5-b2', pipeline.b2, sig_dir);
+    setPip('pip5-br', pipeline.branch, sig_dir);
+    setPip('pip5-1s', pipeline.confirm, sig_dir);
+    setPip('pip5-p1', pipeline.entry, sig_dir);
+    setPip('pip5-out', pipeline.exit, sig_dir);
+  }
+
+  if (pipeline.b1) {
+    var s14k = pipeline.b1.stoch14_k;
+    var s14d = pipeline.b1.stoch14_d;
+    if (typeof s14k === 'number') {
+      document.getElementById('d-s14k').textContent = s14k.toFixed(1);
+      document.getElementById('d-s14k').style.color = s14k > s14d ? 'var(--green)' : 'var(--red)';
+    }
+    if (typeof s14d === 'number') {
+      document.getElementById('d-s14d').textContent = s14d.toFixed(1);
+    }
+  }
+  if (pipeline.b2 && typeof pipeline.b2.ecart_ok !== 'undefined') {
+    var ecEl = document.getElementById('d-ecart');
+    var detail = pipeline.b2.detail || '';
+    var m = detail.match(/[\d.]+/);
+    if (m) {
+      ecEl.textContent = m[0];
+      ecEl.style.color = pipeline.b2.ecart_ok ? 'var(--green)' : 'var(--red)';
+    }
+  }
+}
+
+function setPip(id, data, sig_dir) {
+  var el = document.getElementById(id);
+  if (!el || !data) return;
+  el.className = 'pip-step';
+  if (data.active) {
+    if (sig_dir === 'BUY') el.classList.add('signal-buy');
+    else if (sig_dir === 'SELL') el.classList.add('signal-sell');
+    else el.classList.add('active');
+  }
+  var lbl = el.querySelector('.pip-label');
+  var code = el.querySelector('.pip-code');
+  if (lbl) lbl.textContent = data.detail || data.label || '';
+  if (code) code.textContent = data.label || '';
 }
 
 function render(d) {
@@ -249,7 +401,22 @@ function render(d) {
   document.getElementById('d-drawdown').textContent = (d.drawdown || 0).toFixed(2) + '%';
   document.getElementById('d-winrate').textContent = (d.winRate || 0).toFixed(1) + '%';
 
-  renderPipeline(d.pipeline, d.currentCAS);
+  // Alert banners
+  var faux = document.getElementById('d-faux-banner');
+  faux.style.display = d.faux_mouvement ? 'block' : 'none';
+  var exit = document.getElementById('d-exit-banner');
+  exit.style.display = d.exit_signal ? 'block' : 'none';
+
+  var sig_dir = d.signal ? d.signal.type : 'ATTENTE';
+  renderPipeline(d.pipeline, d.currentCAS, sig_dir);
+
+  // B1/B2 grid — StochRSI K
+  var srsiEl = document.getElementById('d-srsi-k');
+  if (d.indicators) {
+    var sk = d.indicators.stochRSI_K || 0;
+    srsiEl.textContent = sk.toFixed(3);
+    srsiEl.style.color = sk > 0.8 ? 'var(--red)' : sk < 0.2 ? 'var(--green)' : 'var(--text)';
+  }
 
   if (d.indicators) {
     var ind = d.indicators;
@@ -257,10 +424,22 @@ function render(d) {
     document.getElementById('d-ind-stoch').textContent = sk.toFixed(3);
     document.getElementById('d-ind-stoch-bar').style.width = (sk * 100) + '%';
     document.getElementById('d-ind-stoch-bar').style.background = sk > 0.8 ? 'var(--red)' : sk < 0.2 ? 'var(--green)' : 'var(--gold)';
+
+    var s14k = ind.stoch14_K || 50;
+    document.getElementById('d-ind-s14k').textContent = s14k.toFixed(1);
+    document.getElementById('d-ind-s14k-bar').style.width = s14k + '%';
+    document.getElementById('d-ind-s14k-bar').style.background = s14k > 80 ? 'var(--red)' : s14k < 20 ? 'var(--green)' : 'var(--gold)';
+
     var adx = ind.adx || 0;
     document.getElementById('d-ind-adx').textContent = adx.toFixed(1);
     document.getElementById('d-ind-adx-bar').style.width = Math.min(adx, 60) / 60 * 100 + '%';
     document.getElementById('d-ind-adx-bar').style.background = adx >= 25 ? 'var(--green)' : adx <= 20 ? 'var(--red)' : 'var(--gold)';
+
+    var ec = ind.ecart_dk || 0;
+    document.getElementById('d-ind-ecart').textContent = ec.toFixed(1);
+    document.getElementById('d-ind-ecart-bar').style.width = Math.min(ec, 50) / 50 * 100 + '%';
+    document.getElementById('d-ind-ecart-bar').style.background = ec >= 10 ? 'var(--green)' : 'var(--red)';
+
     document.getElementById('d-ind-atr').textContent = (ind.atr || 0).toFixed(4);
     document.getElementById('d-ind-bb').textContent = (ind.bb_width || 0).toFixed(2) + '%';
     var macdEl = document.getElementById('d-ind-macd');
@@ -297,18 +476,37 @@ function render(d) {
     document.getElementById('d-sig-reasons').innerHTML = rhtml;
   }
 
+  // Pyramide
+  var pyrWrap = document.getElementById('d-pyramide');
+  var pyrLvl = document.getElementById('d-pyr-levels');
+  if (d.pyramide && d.pyramide.length > 0) {
+    pyrWrap.style.display = 'block';
+    var ph = '';
+    d.pyramide.forEach(function(p) {
+      ph += '<div class="pyr-chip"><span class="pyr-lbl">' + esc(p.level) +
+        '</span><span class="pyr-val">' + p.price.toFixed(2) +
+        '</span><span style="font-size:0.6rem;color:var(--text2)">' +
+        (p.lot_pct * 100) + '%</span></div>';
+    });
+    pyrLvl.innerHTML = ph;
+  } else {
+    pyrWrap.style.display = 'none';
+  }
+
   var pos = d.positions || [];
   document.getElementById('d-poscount').textContent = pos.length;
   var pb = document.getElementById('d-positions');
   if (pos.length === 0) {
-    pb.innerHTML = '<tr><td colspan="4" style="color:var(--text2);text-align:center">Aucune position</td></tr>';
+    pb.innerHTML = '<tr><td colspan="6" style="color:var(--text2);text-align:center">Aucune position</td></tr>';
   } else {
     var h = '';
     pos.forEach(function(p) {
       var plc = (p.pl || 0) >= 0 ? 'stat-green' : 'stat-red';
       h += '<tr><td>' + esc(p.asset) + '</td><td class="' +
         (p.dir === 'BUY' ? 'stat-green' : 'stat-red') + '">' + esc(p.dir) +
-        '</td><td>' + p.lot + '</td><td class="' + plc + '">' +
+        '</td><td>' + p.lot + '</td><td>' + (p.sl || 0).toFixed(1) +
+        '</td><td>' + (p.tp || 0).toFixed(1) +
+        '</td><td class="' + plc + '">' +
         ((p.pl || 0) >= 0 ? '+' : '') + (p.pl || 0).toFixed(2) + '</td></tr>';
     });
     pb.innerHTML = h;

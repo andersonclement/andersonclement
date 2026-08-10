@@ -63,3 +63,24 @@ class TradingAccount(db.Model):
     max_positions = db.Column(db.Integer, default=3)
     daily_loss_realized = db.Column(db.Float, default=0.0)
     daily_loss_date = db.Column(db.String(10), nullable=True)
+
+
+class TradeHistory(db.Model):
+    __tablename__ = "trade_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer, db.ForeignKey("users.id"), nullable=False, index=True
+    )
+    symbol = db.Column(db.String(20), nullable=False)
+    direction = db.Column(db.String(10), nullable=False)
+    cas = db.Column(db.String(30), nullable=True)
+    lot_size = db.Column(db.Float, default=0.01)
+    entry_price = db.Column(db.Float, default=0)
+    exit_price = db.Column(db.Float, nullable=True)
+    sl = db.Column(db.Float, default=0)
+    tp = db.Column(db.Float, default=0)
+    profit = db.Column(db.Float, default=0)
+    status = db.Column(db.String(20), default="OPEN")
+    opened_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    closed_at = db.Column(db.DateTime, nullable=True)
