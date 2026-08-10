@@ -20,6 +20,7 @@
       {% if current_user.is_admin %}
       <a href="{{ url_for('admin_panel') }}">Admin</a>
       {% endif %}
+      <span class="nav-user-id">{{ current_user.username }}</span>
       <a href="{{ url_for('logout') }}">Deconnexion</a>
     </div>
   </nav>

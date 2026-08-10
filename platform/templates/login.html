@@ -12,8 +12,10 @@
     <form method="POST">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
-        <label for="username">Nom d'utilisateur</label>
-        <input type="text" id="username" name="username" required autofocus>
+        <label for="username">Identifiant</label>
+        <input type="text" id="username" name="username" required autofocus
+               placeholder="Ex: ID001"
+               style="text-transform:uppercase; letter-spacing:0.1em; text-align:center; font-size:1.1rem">
       </div>
       <div class="form-group">
         <label for="password">Mot de passe</label>
@@ -23,8 +25,8 @@
     </form>
 
     <div class="auth-footer">
-      Pas encore de compte ?
-      <a href="{{ url_for('register') }}">Activer avec un code</a>
+      Premiere connexion ?
+      <a href="{{ url_for('activation') }}">Activer avec un code</a>
     </div>
   </div>
 </div>

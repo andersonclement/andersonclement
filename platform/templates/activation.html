@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Activation - SmartTrader 7CAS{% endblock %}
+
+{% block content %}
+<div class="auth-page">
+  <div class="auth-card">
+    <div class="logo">
+      <h1>SmartTrader 7CAS</h1>
+      <p>Activez votre compte trading</p>
+    </div>
+
+    <form method="POST">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="form-group">
+        <label for="activation_code">Code d'activation</label>
+        <input type="text" id="activation_code" name="activation_code"
+               placeholder="Ex: A1B2C3D4" required autocomplete="off"
+               style="text-transform:uppercase; letter-spacing:0.15em; text-align:center; font-size:1.2rem">
+      </div>
+
+      <div class="form-group">
+        <label for="password">Choisissez un mot de passe</label>
+        <input type="password" id="password" name="password" minlength="6" required
+               placeholder="6 caracteres minimum">
+      </div>
+
+      <div class="form-group">
+        <label for="confirm_password">Confirmez le mot de passe</label>
+        <input type="password" id="confirm_password" name="confirm_password" required>
+      </div>
+
+      <p style="color:var(--text2); font-size:0.85rem; text-align:center; margin-bottom:1rem">
+        Votre identifiant sera genere automatiquement (ex: ID001)
+      </p>
+
+      <button type="submit" class="btn btn-green btn-block">Activer mon compte</button>
+    </form>
+
+    <div class="auth-footer">
+      Deja un compte ?
+      <a href="{{ url_for('login') }}">Se connecter</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

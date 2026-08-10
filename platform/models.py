@@ -26,6 +26,23 @@ class User(UserMixin, db.Model):
     def is_active(self):
         return self.is_active_account
 
+    @staticmethod
+    def generate_next_id():
+        last = (
+            User.query
+            .filter(User.username.like("ID%"), User.is_admin.is_(False))
+            .order_by(User.id.desc())
+            .first()
+        )
+        if last and last.username.startswith("ID"):
+            try:
+                num = int(last.username[2:]) + 1
+            except ValueError:
+                num = 1
+        else:
+            num = 1
+        return f"ID{num:03d}"
+
 
 class ActivationCode(db.Model):
     __tablename__ = "activation_codes"

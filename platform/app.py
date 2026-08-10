@@ -87,7 +87,7 @@ def create_app():
         if current_user.is_authenticated:
             return redirect(url_for("dashboard"))
         if request.method == "POST":
-            username = request.form.get("username", "").strip()
+            username = request.form.get("username", "").strip().upper()
             password = request.form.get("password", "")
             user = User.query.filter_by(username=username).first()
             if user and check_password_hash(user.password_hash, password):
@@ -101,48 +101,37 @@ def create_app():
                     return redirect(nxt)
                 return redirect(url_for("dashboard"))
             logger.warning("Failed login attempt for '%s'", username)
-            flash("Identifiants incorrects.", "error")
+            flash("Identifiant ou mot de passe incorrect.", "error")
         return render_template("login.html")
 
-    @app.route("/register", methods=["GET", "POST"])
+    @app.route("/activation", methods=["GET", "POST"])
     @limiter.limit("5 per minute")
-    def register():
+    def activation():
         if current_user.is_authenticated:
             return redirect(url_for("dashboard"))
         if request.method == "POST":
             code_str = request.form.get("activation_code", "").strip().upper()
-            username = request.form.get("username", "").strip()
             password = request.form.get("password", "")
             confirm = request.form.get("confirm_password", "")
 
-            if not code_str or not username or not password:
+            if not code_str or not password:
                 flash("Tous les champs sont requis.", "error")
-                return render_template("register.html")
-
-            if len(username) < 3 or len(username) > 30:
-                flash("Le nom d'utilisateur doit contenir entre 3 et 30 caracteres.", "error")
-                return render_template("register.html")
-
-            if not username.isalnum():
-                flash("Le nom d'utilisateur ne doit contenir que des lettres et chiffres.", "error")
-                return render_template("register.html")
+                return render_template("activation.html")
 
             if password != confirm:
                 flash("Les mots de passe ne correspondent pas.", "error")
-                return render_template("register.html")
+                return render_template("activation.html")
 
-            if len(password) < 8:
-                flash("Le mot de passe doit contenir au moins 8 caracteres.", "error")
-                return render_template("register.html")
-
-            if User.query.filter_by(username=username).first():
-                flash("Ce nom d'utilisateur est deja pris.", "error")
-                return render_template("register.html")
+            if len(password) < 6:
+                flash("Le mot de passe doit contenir au moins 6 caracteres.", "error")
+                return render_template("activation.html")
 
             code = ActivationCode.query.filter_by(code=code_str, is_used=False).first()
             if not code:
                 flash("Code d'activation invalide ou deja utilise.", "error")
-                return render_template("register.html")
+                return render_template("activation.html")
+
+            username = User.generate_next_id()
 
             now = datetime.now(timezone.utc)
             user = User(
@@ -160,10 +149,10 @@ def create_app():
 
             login_user(user, remember=False)
             logger.info("New user '%s' registered with code %s", username, code_str)
-            flash("Compte cree ! Configurez vos identifiants trading.", "success")
+            flash(f"Compte active ! Votre identifiant est : {username}", "success")
             return redirect(url_for("setup_trading"))
 
-        return render_template("register.html")
+        return render_template("activation.html")
 
     @app.route("/logout")
     @login_required
