@@ -95,8 +95,18 @@ SYMBOL_LABELS = {"XAUUSDm": "Or (XAUUSD)", "XAGUSDm": "Argent (XAGUSD)", "USOILm
 START_HOUR = 8
 END_HOUR = 22
 
-NEWS_TIMES = [(8, 30), (12, 0), (14, 0)]
+NEWS_TIMES = [
+    (8, 30),   # PMI Europe / donnees UK
+    (10, 0),   # ZEW / IFO Europe
+    (12, 45),  # BCE decision taux
+    (13, 30),  # NFP / CPI / GDP US
+    (14, 0),   # Donnees US secondaires
+    (15, 0),   # ISM Manufacturing / Services
+    (18, 0),   # FOMC decision
+    (20, 0),   # Minutes FOMC / discours Fed
+]
 NEWS_BUFFER_MIN = 30
+TRADE_INTERVAL_MIN = 60
 
 
 # ── MetaApi data fetching ────────────────────────────────────────

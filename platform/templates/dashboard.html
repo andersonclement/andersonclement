@@ -35,6 +35,9 @@
   <div id="d-exit-banner" class="alert-banner alert-exit" style="display:none">
     SIGNAL SORTIE — StochRSI en zone extreme. Fermer toutes les positions.
   </div>
+  <div id="d-news-banner" class="alert-banner alert-news" style="display:none">
+    PAUSE ANNONCES — Trading automatique suspendu pendant les annonces economiques.
+  </div>
 
   <!-- Stats row -->
   <div class="dash-grid" id="statsGrid">
@@ -265,6 +268,7 @@
 }
 .alert-faux { background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.4); color:#f59e0b; }
 .alert-exit { background:rgba(239,68,68,0.15); border:1px solid rgba(239,68,68,0.4); color:#ef4444; }
+.alert-news { background:rgba(99,102,241,0.15); border:1px solid rgba(99,102,241,0.4); color:#6366f1; }
 
 .pip-header {
   font-size:0.7rem; text-transform:uppercase; letter-spacing:0.06em;
@@ -501,6 +505,8 @@ function render(d) {
   faux.style.display = d.faux_mouvement ? 'block' : 'none';
   var exit = document.getElementById('d-exit-banner');
   exit.style.display = d.exit_signal ? 'block' : 'none';
+  var news = document.getElementById('d-news-banner');
+  news.style.display = d.news_active ? 'block' : 'none';
 
   var sig_dir = d.signal ? d.signal.type : 'ATTENTE';
   renderPipeline(d.pipeline, d.currentCAS, sig_dir);

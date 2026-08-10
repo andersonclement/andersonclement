@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from models import TradingAccount, TradeHistory, db
 from crypto_utils import decrypt
 from risk_manager import get_risk_profile
-from strategy_engine import analyze_all, SYMBOL_LABELS, CAS_PRIORITY
+from strategy_engine import analyze_all, SYMBOL_LABELS, CAS_PRIORITY, is_news_time, TRADE_INTERVAL_MIN
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ class TradingManager:
 
         if result["ok"]:
             account.status = "RUNNING"
+            account.auto_trade_enabled = True
             account.last_seen = datetime.now(timezone.utc)
             db.session.commit()
 
@@ -137,6 +138,7 @@ class TradingManager:
             _api_call("POST", undeploy_url, token)
 
         account.status = "STOPPED"
+        account.auto_trade_enabled = False
         db.session.commit()
         return {"ok": True, "message": "Instance arretee"}
 
@@ -322,8 +324,25 @@ class TradingManager:
             }
             cas_evaluations = b.get("cas_evaluations", {})
 
-        if account.auto_trade_enabled and analysis and risk and risk.get("can_trade"):
-            cls._auto_trade_cycle(account, token, analysis, risk, balance, positions, log_entries, now_str)
+        now = datetime.now(timezone.utc)
+        can_scan = True
+        if account.last_trade_scan:
+            last = account.last_trade_scan
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=timezone.utc)
+            elapsed = (now - last).total_seconds() / 60
+            can_scan = elapsed >= TRADE_INTERVAL_MIN
+
+        if account.auto_trade_enabled and analysis and risk and risk.get("can_trade") and can_scan:
+            if is_news_time():
+                log_entries.append({"time": now_str, "type": "WARN", "msg": "Pause annonces economiques — trading suspendu"})
+            else:
+                account.last_trade_scan = now
+                db.session.commit()
+                cls._auto_trade_cycle(account, token, analysis, risk, balance, positions, log_entries, now_str)
+        elif account.auto_trade_enabled and not can_scan:
+            remaining = TRADE_INTERVAL_MIN - (now - (account.last_trade_scan.replace(tzinfo=timezone.utc) if account.last_trade_scan and account.last_trade_scan.tzinfo is None else account.last_trade_scan or now)).total_seconds() / 60
+            log_entries.append({"time": now_str, "type": "INFO", "msg": f"Prochain scan auto dans {max(0, remaining):.0f} min"})
 
         return {
             "status": "ACTIF",
@@ -350,6 +369,7 @@ class TradingManager:
             "pipeline": pipeline,
             "cas_evaluations": cas_evaluations,
             "auto_trade": account.auto_trade_enabled,
+            "news_active": is_news_time(),
             "faux_mouvement": analysis.get("best", {}).get("faux_mouvement", False) if analysis else False,
             "exit_signal": analysis.get("best", {}).get("exit_signal", False) if analysis else False,
             "branch": analysis.get("best", {}).get("branch", "") if analysis else "",

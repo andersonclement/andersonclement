@@ -59,6 +59,7 @@ class TradingAccount(db.Model):
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     auto_trade_enabled = db.Column(db.Boolean, default=False)
+    last_trade_scan = db.Column(db.DateTime, nullable=True)
     risk_percent = db.Column(db.Float, default=1.0)
     max_daily_loss_pct = db.Column(db.Float, default=5.0)
     max_positions = db.Column(db.Integer, default=3)
