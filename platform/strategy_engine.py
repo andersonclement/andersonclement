@@ -807,7 +807,7 @@ def generate_signal(closes, opens, highs, lows):
     elif regime == "CAS2_SCALPING":
         sig, reasons = _get_cas2(closes, opens, highs, lows, stoch_k)
     elif regime == "CAS3_RANGE":
-        sig, reasons = _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr)
+        sig, reasons = _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr, adx)
     elif regime == "CAS4_CASSURE":
         sig, reasons = _get_cas4(closes, opens, highs, lows, atr)
     elif regime == "CAS5_SMC":
@@ -872,6 +872,17 @@ def generate_signal(closes, opens, highs, lows):
     }
 
 
+def _calc_dynamic_score(cas_name, sig, confirmations, required, adx):
+    base = CAS_PARAMS[cas_name]["base_score"]
+    if sig == 0:
+        return 0
+    ratio = confirmations / required if required > 0 else 1.0
+    score = base * ratio
+    if cas_name == "CAS1_TENDANCE":
+        score = min(40 + adx, 100)
+    return round(min(score, 100))
+
+
 def evaluate_all_cas(closes, opens, highs, lows):
     """Evaluate all 8 CAS simultaneously. Returns (evaluations, best_signal)."""
     if len(closes) < 200:
@@ -897,7 +908,7 @@ def evaluate_all_cas(closes, opens, highs, lows):
     cas_funcs = {
         "CAS1_TENDANCE": lambda: _get_cas1(closes, opens, highs, lows, stoch_k, adx, macd_main, macd_sig),
         "CAS2_SCALPING": lambda: _get_cas2(closes, opens, highs, lows, stoch_k),
-        "CAS3_RANGE": lambda: _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr),
+        "CAS3_RANGE": lambda: _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr, adx),
         "CAS4_CASSURE": lambda: _get_cas4(closes, opens, highs, lows, atr),
         "CAS5_SMC": lambda: _get_cas5(closes, opens, highs, lows, stoch_k),
         "CAS6_RETOURNEMENT": lambda: _get_cas6(closes, opens, highs, lows, stoch_k, rsi_values),
@@ -917,7 +928,7 @@ def evaluate_all_cas(closes, opens, highs, lows):
             "confirmations": conf,
             "required": req,
             "valid": conf >= req and sig != 0,
-            "score": CAS_PARAMS[cas_name]["base_score"] if sig != 0 else 0,
+            "score": _calc_dynamic_score(cas_name, sig, conf, req, adx) if sig != 0 else 0,
             "label": CAS_LABELS[cas_name],
             "confidence_rate": CAS_CONFIDENCE[cas_name],
             "priority_rank": rank,
@@ -1114,7 +1125,7 @@ def _get_cas1(closes, opens, highs, lows, stoch_k, adx, macd_m, macd_s):
     ema50 = calc_ema(closes, 50)
     ema200 = calc_ema(closes, 200)
     if not all([ema9, ema21, ema50, ema200]):
-        return 0, []
+        return 0, [{"ok": False, "text": "Donnees EMA insuffisantes"}]
 
     e9, e21, e50, e200 = ema9[-1], ema21[-1], ema50[-1], ema200[-1]
     trend_up = e9 > e21 > e50 > e200
@@ -1126,28 +1137,18 @@ def _get_cas1(closes, opens, highs, lows, stoch_k, adx, macd_m, macd_s):
     pa_bull = is_bullish_pa(opens, closes, highs, lows)
     pa_bear = is_bearish_pa(opens, closes, highs, lows)
 
-    if trend_up and pullback_buy and macd_bull and pa_bull:
-        return 1, [
-            {"ok": True, "text": f"CAS1 : Tendance haussiere (EMA alignees)"},
-            {"ok": True, "text": f"ADX {adx:.1f} > 25 confirme tendance"},
-            {"ok": True, "text": f"StochRSI survendu ({stoch_k:.2f}) — timing BUY"},
-            {"ok": True, "text": "MACD haussier"},
-            {"ok": True, "text": "Price Action haussiere"},
-        ]
-    if trend_dn and pullback_sell and macd_bear and pa_bear:
-        return -1, [
-            {"ok": True, "text": f"CAS1 : Tendance baissiere (EMA alignees)"},
-            {"ok": True, "text": f"ADX {adx:.1f} > 25 confirme tendance"},
-            {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f}) — timing SELL"},
-            {"ok": True, "text": "MACD baissier"},
-            {"ok": True, "text": "Price Action baissiere"},
-        ]
-
     reasons = [
-        {"ok": trend_up or trend_dn, "text": "EMA alignees" if (trend_up or trend_dn) else "EMA non alignees"},
-        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f}"},
-        {"ok": adx >= ADX_TREND, "text": f"ADX {adx:.1f}"},
+        {"ok": trend_up or trend_dn, "text": f"EMA alignees {'haussiere' if trend_up else 'baissiere' if trend_dn else '— non alignees'}"},
+        {"ok": adx >= ADX_TREND, "text": f"ADX {adx:.1f} {'> 25 tendance' if adx >= ADX_TREND else '< 25 pas de tendance'}"},
+        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f} {'survendu' if pullback_buy else 'surachete' if pullback_sell else 'neutre'}"},
+        {"ok": macd_bull or macd_bear, "text": f"MACD {'haussier' if macd_bull else 'baissier'}"},
+        {"ok": pa_bull or pa_bear, "text": f"Price Action {'haussiere' if pa_bull else 'baissiere' if pa_bear else 'neutre'}"},
     ]
+
+    if trend_up and pullback_buy and macd_bull and pa_bull:
+        return 1, reasons
+    if trend_dn and pullback_sell and macd_bear and pa_bear:
+        return -1, reasons
     return 0, reasons
 
 
@@ -1155,75 +1156,70 @@ def _get_cas2(closes, opens, highs, lows, stoch_k):
     ema9 = calc_ema(closes, 9)
     ema21 = calc_ema(closes, 21)
     if not ema9 or not ema21 or len(ema9) < 2 or len(ema21) < 2:
-        return 0, []
+        return 0, [{"ok": False, "text": "Donnees EMA insuffisantes"}]
 
     cross_up = ema9[-2] <= ema21[-2] and ema9[-1] > ema21[-1]
     cross_dn = ema9[-2] >= ema21[-2] and ema9[-1] < ema21[-1]
+    pullback_buy = stoch_k <= STOCHRSI_OS
+    pullback_sell = stoch_k >= STOCHRSI_OB
     pa_bull = is_bullish_pa(opens, closes, highs, lows)
     pa_bear = is_bearish_pa(opens, closes, highs, lows)
 
-    if cross_up and stoch_k <= STOCHRSI_OS and pa_bull:
-        return 1, [
-            {"ok": True, "text": "CAS2 : Scalping BUY"},
-            {"ok": True, "text": "EMA croisement haussier"},
-            {"ok": True, "text": f"StochRSI survendu ({stoch_k:.2f})"},
-            {"ok": True, "text": "Price Action haussiere"},
-        ]
-    if cross_dn and stoch_k >= STOCHRSI_OB and pa_bear:
-        return -1, [
-            {"ok": True, "text": "CAS2 : Scalping SELL"},
-            {"ok": True, "text": "EMA croisement baissier"},
-            {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f})"},
-            {"ok": True, "text": "Price Action baissiere"},
-        ]
-    return 0, [{"ok": False, "text": "Scan scalping — attente croisement EMA"}]
+    reasons = [
+        {"ok": cross_up or cross_dn, "text": f"EMA croisement {'haussier' if cross_up else 'baissier' if cross_dn else '— pas de croisement'}"},
+        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f} {'survendu' if pullback_buy else 'surachete' if pullback_sell else 'neutre'}"},
+        {"ok": pa_bull or pa_bear, "text": f"Price Action {'haussiere' if pa_bull else 'baissiere' if pa_bear else 'neutre'}"},
+    ]
+
+    if cross_up and pullback_buy and pa_bull:
+        return 1, reasons
+    if cross_dn and pullback_sell and pa_bear:
+        return -1, reasons
+    return 0, reasons
 
 
-def _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr):
+def _get_cas3(closes, highs, lows, stoch_k, bb_lower, bb_upper, atr, adx=0):
     bid = closes[-1]
-    buy_range = abs(bid - bb_lower) <= atr * 0.8 and stoch_k <= STOCHRSI_OS
-    sell_range = abs(bid - bb_upper) <= atr * 0.8 and stoch_k >= STOCHRSI_OB
+    near_bb_low = abs(bid - bb_lower) <= atr * 0.8
+    near_bb_high = abs(bid - bb_upper) <= atr * 0.8
+    is_range = adx <= ADX_RANGE
+    pullback_buy = stoch_k <= STOCHRSI_OS
+    pullback_sell = stoch_k >= STOCHRSI_OB
 
-    if buy_range:
-        return 1, [
-            {"ok": True, "text": "CAS3 : Range — prix sur BB bas"},
-            {"ok": True, "text": "ADX < 20 marche consolide"},
-            {"ok": True, "text": f"StochRSI survendu ({stoch_k:.2f})"},
-            {"ok": True, "text": "Achat bas du range"},
-        ]
-    if sell_range:
-        return -1, [
-            {"ok": True, "text": "CAS3 : Range — prix sur BB haut"},
-            {"ok": True, "text": "ADX < 20 marche consolide"},
-            {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f})"},
-            {"ok": True, "text": "Vente haut du range"},
-        ]
-    return 0, [{"ok": False, "text": "Range detecte — attente extremite BB"}]
+    reasons = [
+        {"ok": is_range, "text": f"ADX {adx:.1f} {'< 20 consolide' if is_range else '> 20 pas de range'}"},
+        {"ok": near_bb_low or near_bb_high, "text": f"Prix {'sur BB bas' if near_bb_low else 'sur BB haut' if near_bb_high else 'au milieu du range'}"},
+        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f} {'survendu' if pullback_buy else 'surachete' if pullback_sell else 'neutre'}"},
+    ]
+
+    if is_range and near_bb_low and pullback_buy:
+        return 1, reasons
+    if is_range and near_bb_high and pullback_sell:
+        return -1, reasons
+    return 0, reasons
 
 
 def _get_cas4(closes, opens, highs, lows, atr):
     if len(closes) < 2 or atr == 0:
-        return 0, []
+        return 0, [{"ok": False, "text": "Donnees insuffisantes"}]
     body = abs(closes[-1] - opens[-1])
     big_candle = body > atr * 1.5
     bos_bull = is_bullish_bos(highs, closes)
     bos_bear = is_bearish_bos(lows, closes)
+    bullish_close = closes[-1] > opens[-1]
+    bearish_close = closes[-1] < opens[-1]
 
-    if bos_bull and big_candle and closes[-1] > opens[-1]:
-        return 1, [
-            {"ok": True, "text": "CAS4 : Cassure directe haussiere"},
-            {"ok": True, "text": "Break of Structure (BOS) confirme"},
-            {"ok": True, "text": f"Grande bougie ({body / atr:.1f}x ATR)"},
-            {"ok": True, "text": "Entree sur momentum de cassure"},
-        ]
-    if bos_bear and big_candle and closes[-1] < opens[-1]:
-        return -1, [
-            {"ok": True, "text": "CAS4 : Cassure directe baissiere"},
-            {"ok": True, "text": "Break of Structure (BOS) confirme"},
-            {"ok": True, "text": f"Grande bougie ({body / atr:.1f}x ATR)"},
-            {"ok": True, "text": "Entree sur momentum de cassure"},
-        ]
-    return 0, [{"ok": False, "text": "Cassure detectee — attente confirmation"}]
+    reasons = [
+        {"ok": bos_bull or bos_bear, "text": f"BOS {'haussier' if bos_bull else 'baissier' if bos_bear else '— pas de cassure'}"},
+        {"ok": big_candle, "text": f"Bougie {body / atr:.1f}x ATR {'> 1.5 momentum' if big_candle else '< 1.5 faible'}"},
+        {"ok": bullish_close or bearish_close, "text": f"Cloture {'haussiere' if bullish_close else 'baissiere'}"},
+    ]
+
+    if bos_bull and big_candle and bullish_close:
+        return 1, reasons
+    if bos_bear and big_candle and bearish_close:
+        return -1, reasons
+    return 0, reasons
 
 
 def _get_cas5(closes, opens, highs, lows, stoch_k):
@@ -1235,27 +1231,25 @@ def _get_cas5(closes, opens, highs, lows, stoch_k):
     sh_s = is_bearish_sh(opens, closes, highs, lows)
     pa_bull = is_bullish_pa(opens, closes, highs, lows)
     pa_bear = is_bearish_pa(opens, closes, highs, lows)
+    pullback_buy = stoch_k <= STOCHRSI_OS
+    pullback_sell = stoch_k >= STOCHRSI_OB
 
     smc_bull = (2 if ob_b else 0) + (3 if choch_b else 0) + (3 if sh_b else 0)
     smc_bear = (2 if ob_s else 0) + (3 if choch_s else 0) + (3 if sh_s else 0)
+    best_smc = max(smc_bull, smc_bear)
 
-    if smc_bull >= 3 and stoch_k <= STOCHRSI_OS and pa_bull:
-        return 1, [
-            {"ok": True, "text": "CAS5 : SMC — cassure indirecte haussiere"},
-            {"ok": ob_b, "text": "Order Block haussier"},
-            {"ok": choch_b, "text": "CHoCH haussier"},
-            {"ok": sh_b, "text": "Stop Hunt haussier"},
-            {"ok": True, "text": f"StochRSI survendu ({stoch_k:.2f})"},
-        ]
-    if smc_bear >= 3 and stoch_k >= STOCHRSI_OB and pa_bear:
-        return -1, [
-            {"ok": True, "text": "CAS5 : SMC — cassure indirecte baissiere"},
-            {"ok": ob_s, "text": "Order Block baissier"},
-            {"ok": choch_s, "text": "CHoCH baissier"},
-            {"ok": sh_s, "text": "Stop Hunt baissier"},
-            {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f})"},
-        ]
-    return 0, [{"ok": False, "text": "SMC scan — score insuffisant"}]
+    reasons = [
+        {"ok": ob_b or ob_s, "text": f"Order Block {'haussier' if ob_b else 'baissier' if ob_s else '— absent'}"},
+        {"ok": choch_b or choch_s, "text": f"CHoCH {'haussier' if choch_b else 'baissier' if choch_s else '— absent'}"},
+        {"ok": sh_b or sh_s, "text": f"Stop Hunt {'haussier' if sh_b else 'baissier' if sh_s else '— absent'}"},
+        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f} {'survendu' if pullback_buy else 'surachete' if pullback_sell else 'neutre'}"},
+    ]
+
+    if smc_bull >= 3 and pullback_buy and pa_bull:
+        return 1, reasons
+    if smc_bear >= 3 and pullback_sell and pa_bear:
+        return -1, reasons
+    return 0, reasons
 
 
 def _get_cas6(closes, opens, highs, lows, stoch_k, rsi_values):
@@ -1265,23 +1259,23 @@ def _get_cas6(closes, opens, highs, lows, stoch_k, rsi_values):
     pa_bear = is_bearish_pa(opens, closes, highs, lows)
     rsi = rsi_values[-1] if rsi_values else 50
 
-    if stoch_k < 0.10 and sh_b and rsi < 35 and pa_bull:
-        return 1, [
-            {"ok": True, "text": "CAS6 : Retournement haussier"},
-            {"ok": True, "text": f"StochRSI bloque bas ({stoch_k:.2f})"},
-            {"ok": True, "text": "Stop Hunt — piege retourne"},
-            {"ok": True, "text": f"RSI survendu ({rsi:.1f})"},
-            {"ok": True, "text": "Price Action retournement"},
-        ]
-    if stoch_k > 0.90 and sh_s and rsi > 65 and pa_bear:
-        return -1, [
-            {"ok": True, "text": "CAS6 : Retournement baissier"},
-            {"ok": True, "text": f"StochRSI bloque haut ({stoch_k:.2f})"},
-            {"ok": True, "text": "Stop Hunt — piege retourne"},
-            {"ok": True, "text": f"RSI surachete ({rsi:.1f})"},
-            {"ok": True, "text": "Price Action retournement"},
-        ]
-    return 0, [{"ok": False, "text": "Retournement scan — conditions non reunies"}]
+    stoch_extreme = stoch_k < 0.10 or stoch_k > 0.90
+    sh_detected = sh_b or sh_s
+    rsi_extreme = rsi < 30 or rsi > 70
+    pa_confirmed = pa_bull or pa_bear
+
+    reasons = [
+        {"ok": stoch_extreme, "text": f"StochRSI {stoch_k:.2f} {'bloque bas' if stoch_k < 0.10 else 'bloque haut' if stoch_k > 0.90 else 'zone neutre'}"},
+        {"ok": sh_detected, "text": f"Stop Hunt {'haussier' if sh_b else 'baissier' if sh_s else '— absent'}"},
+        {"ok": rsi_extreme, "text": f"RSI {rsi:.1f} {'survendu < 30' if rsi < 30 else 'surachete > 70' if rsi > 70 else 'neutre'}"},
+        {"ok": pa_confirmed, "text": f"Price Action {'retournement haussier' if pa_bull else 'retournement baissier' if pa_bear else 'non confirmee'}"},
+    ]
+
+    if stoch_k < 0.10 and sh_b and rsi < 30 and pa_bull:
+        return 1, reasons
+    if stoch_k > 0.90 and sh_s and rsi > 70 and pa_bear:
+        return -1, reasons
+    return 0, reasons
 
 
 def _get_cas7(closes, opens, highs, lows, stoch_k, atr):
@@ -1291,22 +1285,21 @@ def _get_cas7(closes, opens, highs, lows, stoch_k, atr):
     ob_s = is_bearish_ob(opens, closes, highs, lows)
     pa_bull = is_bullish_pa(opens, closes, highs, lows)
     pa_bear = is_bearish_pa(opens, closes, highs, lows)
+    pullback_buy = stoch_k <= STOCHRSI_OS
+    pullback_sell = stoch_k >= STOCHRSI_OB
 
-    if fibo_b and ob_b and stoch_k <= STOCHRSI_OS and pa_bull:
-        return 1, [
-            {"ok": True, "text": "CAS7 : Fibonacci confluence haussiere"},
-            {"ok": True, "text": "Prix sur niveau Fibo cle"},
-            {"ok": True, "text": "Order Block sur zone Fibo"},
-            {"ok": True, "text": f"StochRSI survendu ({stoch_k:.2f})"},
-        ]
-    if fibo_s and ob_s and stoch_k >= STOCHRSI_OB and pa_bear:
-        return -1, [
-            {"ok": True, "text": "CAS7 : Fibonacci confluence baissiere"},
-            {"ok": True, "text": "Prix sur niveau Fibo cle"},
-            {"ok": True, "text": "Order Block sur zone Fibo"},
-            {"ok": True, "text": f"StochRSI surachete ({stoch_k:.2f})"},
-        ]
-    return 0, [{"ok": False, "text": "Fibonacci scan — confluence insuffisante"}]
+    reasons = [
+        {"ok": fibo_b or fibo_s, "text": f"Fibonacci {'niveau haussier' if fibo_b else 'niveau baissier' if fibo_s else '— hors zone Fibo'}"},
+        {"ok": ob_b or ob_s, "text": f"Order Block {'haussier sur Fibo' if ob_b else 'baissier sur Fibo' if ob_s else '— absent'}"},
+        {"ok": pullback_buy or pullback_sell, "text": f"StochRSI {stoch_k:.2f} {'survendu' if pullback_buy else 'surachete' if pullback_sell else 'neutre'}"},
+        {"ok": pa_bull or pa_bear, "text": f"Price Action {'haussiere' if pa_bull else 'baissiere' if pa_bear else 'non confirmee'}"},
+    ]
+
+    if fibo_b and ob_b and pullback_buy and pa_bull:
+        return 1, reasons
+    if fibo_s and ob_s and pullback_sell and pa_bear:
+        return -1, reasons
+    return 0, reasons
 
 
 def _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_m, macd_s):
@@ -1320,36 +1313,35 @@ def _get_cas8(closes, opens, highs, lows, stoch_k, atr, macd_m, macd_s):
     macd_bull = macd_m > macd_s
     macd_bear = macd_m < macd_s
 
-    if score_bull >= 50 and pa_bull and macd_bull and stoch_k <= 0.50:
-        if stoch_k <= STOCHRSI_OS:
-            score_bull += 10
-        reasons = [{"ok": True, "text": f"CAS8 : SMC Avance — confluence {score_bull}pts"}]
-        for d in det_bull:
-            reasons.append({"ok": True, "text": d})
-        reasons.append({"ok": True, "text": "MACD haussier"})
-        reasons.append({"ok": True, "text": "Price Action haussiere"})
-        return 1, reasons
-
-    if score_bear >= 50 and pa_bear and macd_bear and stoch_k >= 0.50:
-        if stoch_k >= STOCHRSI_OB:
-            score_bear += 10
-        reasons = [{"ok": True, "text": f"CAS8 : SMC Avance — confluence {score_bear}pts"}]
-        for d in det_bear:
-            reasons.append({"ok": True, "text": d})
-        reasons.append({"ok": True, "text": "MACD baissier"})
-        reasons.append({"ok": True, "text": "Price Action baissiere"})
-        return -1, reasons
-
+    smc_ok = score_bull >= 50 or score_bear >= 50
+    stoch_ok = stoch_k <= 0.35 or stoch_k >= 0.65
+    macd_ok = macd_bull or macd_bear
+    pa_ok = pa_bull or pa_bear
     best = max(score_bull, score_bear)
+
     reasons = [
-        {"ok": False, "text": f"SMC Avance scan — confluence {best}pts (min 50)"},
+        {"ok": smc_ok, "text": f"SMC confluence {best}pts {'> 50 valide' if smc_ok else '< 50 insuffisant'}"},
+        {"ok": stoch_ok, "text": f"StochRSI {stoch_k:.2f} {'< 0.35 survendu' if stoch_k <= 0.35 else '> 0.65 surachete' if stoch_k >= 0.65 else 'zone neutre'}"},
+        {"ok": macd_ok, "text": f"MACD {'haussier' if macd_bull else 'baissier' if macd_bear else 'neutre'}"},
+        {"ok": pa_ok, "text": f"Price Action {'haussiere' if pa_bull else 'baissiere' if pa_bear else 'non confirmee'}"},
     ]
     if det_bull:
         reasons.append({"ok": True, "text": f"Bull: {', '.join(det_bull[:3])}"})
     if det_bear:
         reasons.append({"ok": True, "text": f"Bear: {', '.join(det_bear[:3])}"})
-    if not pa_bull and not pa_bear:
-        reasons.append({"ok": False, "text": "Price Action non confirmee"})
+
+    if score_bull >= 50 and pa_bull and macd_bull and stoch_k <= 0.35:
+        if stoch_k <= STOCHRSI_OS:
+            score_bull += 10
+        reasons[0] = {"ok": True, "text": f"SMC confluence {score_bull}pts — valide"}
+        return 1, reasons
+
+    if score_bear >= 50 and pa_bear and macd_bear and stoch_k >= 0.65:
+        if stoch_k >= STOCHRSI_OB:
+            score_bear += 10
+        reasons[0] = {"ok": True, "text": f"SMC confluence {score_bear}pts — valide"}
+        return -1, reasons
+
     return 0, reasons
 
 
