@@ -13,6 +13,7 @@ from flask_limiter.util import get_remote_address
 from flask_login import (
     LoginManager, login_user, logout_user, login_required, current_user,
 )
+from flask_migrate import Migrate
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -31,6 +32,7 @@ def create_app():
     os.makedirs(os.path.join(os.path.dirname(__file__), "data"), exist_ok=True)
 
     db.init_app(app)
+    Migrate(app, db)
     CSRFProtect(app)
     limiter = Limiter(
         get_remote_address,
